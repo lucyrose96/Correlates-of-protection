@@ -1,0 +1,285 @@
+---
+title: "4. COV002 CoP analysis - non-parametric"
+output: html_document
+---
+
+*Summary*
+This file provides the code for running the non-parametric Rstan model for the COV002 data. Separate models are run for:
+
+- Neutralising antibodies
+- Spike binding antibodies
+- RBD binding antibodies
+
+
+
+*Notes*
+The final models are generated with joint_analysis_CoP_nonparametric_jan24_priors_oxford.stan, (priors = a_raw ~ normal(0, 1); a0 ~ normal(-5, 2)). 
+
+- fit_neut_nonpara2_efficacy_cov002_CoP_march_3knots_log10.rds
+- fit_spike_nonpara2_efficacy_cov002_CoP_march_3knots_log10.rds
+- fit_rbd_nonpara2_efficacy_cov002_CoP_march_3knots_log10.rds
+
+Non-weighted sensitivity:
+
+- fit_neut_nonpara2_efficacy_cov002_CoP_march_3knots_log10_noweight.rds
+- fit_spike_nonpara2_efficacy_cov002_CoP_march_3knots_log10_noweight.rds
+- fit_rbd_nonpara2_efficacy_cov002_CoP_march_3knots_log10_noweight.rds
+
+# 1. Setup
+
+```{r setup 1, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+knitr::opts_knit$set(root.dir = "C:/Users/lucyr/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#laptop
+```
+
+```{r setup 2}
+#setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+setwd("C:/Users/lucyr/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#laptop
+getwd()
+library("ggplot2")
+library("rstan")
+library("gridExtra")
+library("bayesplot")
+library("tidyverse")
+library("loo")
+library("bridgesampling")
+library("ggridges")
+library("data.table")
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+```{r define functions}
+lci<-function(x){quantile(x, 0.025)}
+uci<-function(x){quantile(x, 0.975)}
+```
+
+```{r complete case subsets}
+#Neutralising antibodies
+neut_cc_data<-model_data%>%
+  subset(!is.na(neuts.PB28_log))
+num_subjects_neuts<-nrow(neut_cc_data)
+table(neut_cc_data$outcome, neut_cc_data$vaccinated)
+
+#Spike IgG
+spike_cc_data<-model_data%>%
+  subset(!is.na(igg.S.PB28_log))
+num_subjects_spike<-nrow(spike_cc_data)
+table(spike_cc_data$outcome, spike_cc_data$vaccinated)
+
+#RBD IgG
+RBD_cc_data<-model_data%>%
+  subset(!is.na(igg.RBD.PB28_log))
+num_subjects_RBD<-nrow(RBD_cc_data)
+table(RBD_cc_data$outcome, RBD_cc_data$vaccinated)
+```
+
+# 2. Models
+
+## a. Neutralising antibodies
+
+The data is structured with a row for each trial participant, and columns of their socio-demographic and clinical characteristics, as well as their trial measurements and outcomes.
+
+The covariates included are:
+- HCW_0 = Healthcare worker seeing <1 COVID-19 patient per day on average (1=yes, 0=no)
+- HCW_1plus = Healthcare worker seeing 1 or more COVID-19 patient per day on average (1=yes, 0=no)
+- sc_age_cen = age (years), centred on the mean age
+- obese = BMI 30+  (1=yes, 0=no)
+- white = white ethnicity  (1=yes, 0=no)
+- comorbidity = comorbidity (1=yes, 0=no)
+
+The weights are defined in the neut_weight variable. For sensitivity analysis in which the model was not weighted, all weights were set to 1.
+
+```{r data setup neuts}
+neuts<-c(seq(min(neut_cc_data$neuts.PB28_log10[neut_cc_data$vaccinated==1]), round(max(neut_cc_data$neuts.PB28_log10[neut_cc_data$vaccinated==1]), 1)+0.0103,0.1)) #extended the sequence  because it was cutting it slightly short
+Z_range<-seq(min(neuts),max(neuts),0.1)
+dX<-0.1
+Z_pos<-floor((neut_cc_data$neuts.PB28_log10-Z_range[1])/dX)
+Z_pos[Z_pos<1]<-1
+Z_pos[Z_pos>length(Z_range)]<-length(Z_range)
+
+#senstivity without weights
+#neut_cc_data$neut_weight<-1
+```
+
+
+```{r model run neuts}
+trial_dat <- list(N=num_subjects_neuts, 
+                  C=neut_cc_data$C,
+                  A=neut_cc_data$A,
+                  vaccinated=neut_cc_data$vaccinated,
+                  Z=neut_cc_data$neuts.PB28_log10,
+                  pers_yrs_at_risk=neut_cc_data$pers_yrs_at_risk_cop,
+                  num_knots=3,
+                  knots=unname(quantile(neut_cc_data$neuts.PB28_log10[neut_cc_data$vaccinated==1],probs=seq(from=0, to=1, length.out = 3))), 
+                  spline_degree=3,
+                  X=Z_range, 
+                  spline_length=length(Z_range),
+                  dX=dX,
+                  Z_index=Z_pos,
+                  weight=neut_cc_data$neut_weight,
+                  cov1=neut_cc_data$HCW_0,
+                  cov2=neut_cc_data$HCW_1plus,
+                  cov3=neut_cc_data$sc_age_cen,
+                  cov4=neut_cc_data$obese,
+                  cov5=neut_cc_data$white,
+                  cov6=neut_cc_data$comorbidity
+                  
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+model <- stan_model(file = 'Nonparametric_model_cov002.stan')
+fit_neut_nonpara <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log10_lik(fit_neut_nonpara)
+loo <- loo(log_lik)
+print(loo)
+#visualise parameters
+pars = c("gam",  "alpha", "cVE_hat[1]", "cVE_pr_hat[1]", "cVE_hat[10]", "cVE_pr_hat[10]", "cVE_hat[100]", "cVE_pr_hat[100]")
+pars = c("gam",  "alpha", "cVE_hat[1]", "cVE_pr_hat[1]", "a0", "a0_pr", "tau", "tau_pr", "a_raw", "a_raw_pr")
+print(fit_neut_nonpara, pars=pars)
+traceplot(fit_neut_nonpara, pars=pars, inc_warmup = TRUE)
+pairs(fit_neut_nonpara, pars=pars)
+```
+
+```{r save as RDS}
+fit_neut_nonpara@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_neut_nonpara, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_neut_nonpara2_efficacy_cov002_CoP_march_3knots_log10_noweight.rds")
+fit<-fit_neut_nonpara
+```
+
+
+## b. Spike antibodies
+
+The same models as above are run for the Spike binding antibodies outcome.
+
+```{r data setup spike}
+spikes<-seq(min(spike_cc_data$igg.S.PB28_log10[spike_cc_data$vaccinated==1]), round(max(spike_cc_data$igg.S.PB28_log10[spike_cc_data$vaccinated==1])+0.147761, 1), 0.1)
+Z_range<-seq(min(spikes),max(spikes),0.1)
+dX<-0.1
+Z_pos<-floor((spike_cc_data$igg.S.PB28_log10-Z_range[1])/dX)
+Z_pos[Z_pos<1]<-1
+Z_pos[Z_pos>length(Z_range)]<-length(Z_range)
+#senstivity without weights
+#spike_cc_data$spike_rbd_weight<-1
+```
+
+
+```{r model run spike}
+trial_dat <- list(N=num_subjects_spike, 
+                  C=spike_cc_data$C,
+                  A=spike_cc_data$A,
+                  vaccinated=spike_cc_data$vaccinated,
+                  Z=spike_cc_data$igg.S.PB28_log10,
+                  pers_yrs_at_risk=spike_cc_data$pers_yrs_at_risk_cop,
+                  num_knots=3,
+                  knots=unname(quantile(spike_cc_data$igg.S.PB28_log10[spike_cc_data$vaccinated==1],probs=seq(from=0, to=1, length.out = 3))), 
+                  spline_degree=3,
+                  X=Z_range, 
+                  spline_length=length(Z_range),
+                  dX=dX,
+                  Z_index=Z_pos,
+                  weight=spike_cc_data$spike_rbd_weight,
+                  cov1=spike_cc_data$HCW_0,
+                  cov2=spike_cc_data$HCW_1plus,
+                  cov3=spike_cc_data$sc_age_cen,
+                  cov4=spike_cc_data$obese,
+                  cov5=spike_cc_data$white,
+                  cov6=spike_cc_data$comorbidity
+                  
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+model <- stan_model(file = 'Nonparametric_model_cov002.stan')
+fit_spike_nonpara <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r}
+#log likelihood
+log_lik <- extract_log10_lik(fit_spike_nonpara)
+loo <- loo(log_lik)
+print(loo)
+#visualise parameters
+pars = c("gam",  "alpha", "cVE_hat[1]", "cVE_pr_hat[1]", "cVE_hat[10]", "cVE_pr_hat[10]", "cVE_hat[100]", "cVE_pr_hat[100]")
+pars = c("gam",  "alpha_ref", "cVE_hat[1]", "cVE_pr_hat[1]", "a0", "a0_pr", "a_raw", "a_raw_pr")
+pars = c("gam",  "alpha_ref")
+print(fit_spike_nonpara, pars=pars)
+traceplot(fit_spike_nonpara, pars=pars, inc_warmup = TRUE)
+pairs(fit_spike_nonpara, pars=pars)
+```
+
+
+```{r save as RDS}
+fit_spike_nonpara@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_spike_nonpara, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_spike_nonpara_cov002.rds")
+```
+
+## c. RBD antibodies
+
+The same models as above are run for the RBD binding antibodies outcome.
+
+```{r data setup RBD}
+RBDs<-seq(min(RBD_cc_data$igg.RBD.PB28_log10[RBD_cc_data$vaccinated==1]), round(max(RBD_cc_data$igg.RBD.PB28_log10[RBD_cc_data$vaccinated==1]), 1)+0.1086,0.1)
+Z_range<-seq(min(RBDs),max(RBDs),0.1)
+dX<-0.1
+Z_pos<-floor((RBD_cc_data$igg.RBD.PB28_log10-Z_range[1])/dX)
+Z_pos[Z_pos<1]<-1
+Z_pos[Z_pos>length(Z_range)]<-length(Z_range)
+#sensitivity no weights
+#RBD_cc_data$spike_rbd_weight<-1
+```
+
+
+```{r baseline model run RBD}
+trial_dat <- list(N=num_subjects_RBD, 
+                  C=RBD_cc_data$C,
+                  A=RBD_cc_data$A,
+                  vaccinated=RBD_cc_data$vaccinated,
+                  Z=RBD_cc_data$igg.RBD.PB28_log10,
+                  pers_yrs_at_risk=RBD_cc_data$pers_yrs_at_risk_cop,
+                  num_knots=5,
+                  knots=unname(quantile(RBD_cc_data$igg.RBD.PB28_log10[RBD_cc_data$vaccinated==1],probs=seq(from=0, to=1, length.out = 5))), 
+                  spline_degree=3,
+                  X=Z_range, 
+                  spline_length=length(Z_range),
+                  dX=dX,
+                  Z_index=Z_pos,
+                  weight=RBD_cc_data$spike_rbd_weight,
+                  cov1=RBD_cc_data$HCW_0,
+                  cov2=RBD_cc_data$HCW_1plus,
+                  cov3=RBD_cc_data$sc_age_cen,
+                  cov4=RBD_cc_data$obese,
+                  cov5=RBD_cc_data$white,
+                  cov6=RBD_cc_data$comorbidity
+                  
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+model <- stan_model(file = 'Nonparametric_model_cov002.stan')
+fit_RBD_nonpara <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log10_lik(fit_RBD_nonpara)
+loo <- loo(log_lik)
+print(loo)
+#visualise parameters
+pars = c("gam",  "alpha", "cVE_hat[1]", "cVE_pr_hat[1]", "cVE_hat[10]", "cVE_pr_hat[10]", "cVE_hat[100]", "cVE_pr_hat[100]")
+pars = c("gam",  "alpha", "cVE_hat[1]", "cVE_pr_hat[1]", "a0", "a0_pr", "a_raw", "a_raw_pr")
+pars = c("gam",  "alpha_ref")
+print(fit_RBD_nonpara, pars=pars)
+traceplot(fit_RBD_nonpara, pars=pars, inc_warmup = TRUE)
+pairs(fit_RBD_nonpara, pars=pars)
+```
+
+
+```{r save as RDS}
+fit_RBD_nonpara@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_RBD_nonpara, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_nonpara_cov002.rds")
+```
+

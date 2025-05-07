@@ -1,0 +1,1215 @@
+---
+title: "4. COV002 CoP analysis - parametric"
+output: html_document
+author: "Lucy Williams"
+---
+
+*Summary*
+This file provides the code for running the parametric Rstan model for the COV002 data. Separate models are run for:
+
+- Neutralising antibodies
+- Spike binding antibodies
+- RBD binding antibodies
+
+The baseline model for each was the one used to generate the main results in the manuscript. 
+
+
+We also ran models in which we set the slope parameter, k, to 0 for either VEin or VEpr. This was for the Savage-Dickey ratio calculation. The densities of the prior and posterior distributions at k = 0 were used to calculate the Savage-Dickey density ratio (see supplementary methods).
+
+*Notes*
+In the previous file I established the baseline model - mod7. Here I develop this further, on the efficacy cohort dataset.
+
+Things to ensure:
+
+- log likelihoods are calculated
+
+Note in this file I separated the plotting to another file - "Plotting COV002 CoP results"
+- will remove the setwds from all the extra chunks
+- and change model names
+- get rid of reading models?
+-move kkin/pr models to separate file?
+- check if i want any of the plotting files
+
+# 1. Setup
+
+```{r setup 1, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+knitr::opts_knit$set(root.dir = "C:/Users/lucyr/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#laptop
+```
+
+```{r setup 2}
+#setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+setwd("C:/Users/lucyr/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#laptop
+getwd()
+library("ggplot2")
+library("rstan")
+library("gridExtra")
+library("bayesplot")
+library("tidyverse")
+library("loo")
+library("bridgesampling")
+library("ggridges")
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+```{r define functions}
+lci<-function(x){quantile(x, 0.025)}
+uci<-function(x){quantile(x, 0.975)}
+```
+
+
+```{r complete case subsets}
+#Neutralising antibodies
+neut_cc_data<-model_data%>%
+  subset(!is.na(neuts.PB28_log))
+num_subjects_neuts<-nrow(neut_cc_data)
+table(neut_cc_data$outcome, neut_cc_data$vaccinated)
+
+#Spike IgG
+spike_cc_data<-model_data%>%
+  subset(!is.na(igg.S.PB28_log))
+num_subjects_spike<-nrow(spike_cc_data)
+table(spike_cc_data$outcome, spike_cc_data$vaccinated)
+
+#RBD IgG
+RBD_cc_data<-model_data%>%
+  subset(!is.na(igg.RBD.PB28_log))
+num_subjects_RBD<-nrow(RBD_cc_data)
+table(RBD_cc_data$outcome, RBD_cc_data$vaccinated)
+```
+
+
+# 2. Models
+
+## a. Neutralising antibodies
+
+### Baseline model
+
+The data is structured with a row for each trial participant, and columns of their socio-demographic and clinical characteristics, as well as their trial measurements and outcomes.
+
+The covariates included are:
+- HCW_0 = Healthcare worker seeing <1 COVID-19 patient per day on average (1=yes, 0=no)
+- HCW_1plus = Healthcare worker seeing 1 or more COVID-19 patient per day on average (1=yes, 0=no)
+- sc_age_cen = age (years), centred on the mean age
+- obese = BMI 30+  (1=yes, 0=no)
+- white = white ethnicity  (1=yes, 0=no)
+- comorbidity = comorbidity (1=yes, 0=no)
+
+The weights are defined in the neut_weight variable. For sensitivity analysis in which the model was not weighted, all weights were set to 1.
+
+```{r baseline model run}
+#setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+setwd("C:/Users/lucyr/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+#neut_cc_data$neut_weight<-1 #for sensitivity analysis, reset the weights to 1 and save as ..._noweights
+#Define data
+trial_dat <- list(N=num_subjects_neuts,                               #N subjects in analysis population with neutralising antibody measurement
+                  C=neut_cc_data$C,                                   #N symptomatic infections 
+                  A=neut_cc_data$A,                                   #N asymptomatic infections 
+                  vaccinated=neut_cc_data$vaccinated,                 #Vaccinated indicator variable (1=vaccine, 0=placebo) 
+                  Z=neut_cc_data$neuts.PB28_log10,                    #Neutralising antibody titre, log10 transformed
+                  pers_yrs_at_risk=neut_cc_data$pers_yrs_at_risk_cop, #Person-years at risk for CoP analysis
+                  min_Z=min(neut_cc_data$neuts.PB28_log10),           #Minimum transformed CoP titre
+                  max_Z=max(neut_cc_data$neuts.PB28_log10),           #Maximum transformed CoP titre
+                  weight=neut_cc_data$neut_weight,                    #Inverse probability weight (1/probability of participant having a neutralising antibody titre)
+                  cov1=neut_cc_data$HCW_0,                            #Healthcare worker seeing <1 COVID-19 patient per day on average (1=yes, 0=no)
+                  cov2=neut_cc_data$HCW_1plus,                        #Healthcare worker seeing 1 or more COVID-19 patient per day on average (1=yes, 0=no)
+                  cov3=neut_cc_data$sc_age_cen,                       #Age (years), centred on the mean age
+                  cov4=neut_cc_data$obese,                            #BMI 30+  (1=yes, 0=no)
+                  cov5=neut_cc_data$white,                            #white ethnicity  (1=yes, 0=no)
+                  cov6=neut_cc_data$comorbidity                       #Comorbidity (1=yes, 0=no)
+)
+
+model <- stan_model(file = 'Parametric_model_cov002.stan')
+fit_neut_para <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#Log likelihood
+log_lik <- extract_log_lik(fit_neut_para)
+loo <- loo(log_lik)
+print(loo)
+
+#View parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_neut_para, pars=pars)
+traceplot(fit_neut_para, pars=pars, inc_warmup = TRUE)
+pairs(fit_neut_para, pars=pars)
+pairs(fit_neut_para, pars=c("VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean" ))
+pairs(fit_neut_para, pars=c("VE_direct_in", "VE_direct_pr", "p_direct_in", "p_direct_pr" ))
+```
+
+```{r save as RDS}
+fit_neut_para@stanmodel@dso <- new("cxxdso")
+#save baseline model
+#saveRDS(fit_neut_para, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_neut_para_cov002.rds")
+#save no weights model
+#saveRDS(fit_neut_para, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_neut_para_cov002_noweights.rds")
+```
+
+```{r posterior distributions}
+est_params<-data.frame(rstan::extract(fit_neut_para, pars=pars))
+hist(est_params$kk_in, br=100)
+hist(est_params$kk_pr, br=100)
+hist(est_params$kk_in, br=1000, xlim = c(0,3))
+hist(est_params$kk_pr, br=1000, xlim = c(0,3))
+hist(est_params$n_50_in, br=100)
+hist(est_params$n_50_pr, br=100)
+hist(est_params$VE_direct_in, br=100)
+hist(est_params$VE_direct_pr, br=100)
+hist(est_params$VE_indirect_in, br=100)
+hist(est_params$VE_indirect_pr, br=100)
+hist(est_params$ps, br=100)
+hist(est_params$scale_in, br=100)
+hist(est_params$scale_pr, br=100)
+hist(est_params$p_direct_in, br=100)
+hist(est_params$p_direct_pr, br=100)
+```
+
+```{r summarise}
+est_params_summary<-est_params %>%
+  summarise(
+    mean_ps=mean(ps),
+    mean_foi_ref=mean(foi_ref),
+    mean_foi_cov1=mean(foi_cov1),
+    mean_foi_cov2=mean(foi_cov2),
+    mean_foi_cov3=mean(foi_cov3),
+    mean_foi_cov4=mean(foi_cov4),
+    mean_foi_cov5=mean(foi_cov5),
+    mean_foi_cov6=mean(foi_cov6),
+    mean_kk_in=mean(kk_in),
+    mean_kk_pr=mean(kk_pr),
+    mean_n_50_in=mean(n_50_in),
+    mean_n_50_pr=mean(n_50_pr),
+    mean_scale_in=mean(scale_in),
+    mean_scale_pr=mean(scale_pr),
+    mean_VE_direct_in=mean(VE_direct_in),
+    mean_VE_direct_pr=mean(VE_direct_pr),
+    mean_VE_indirect_in=mean(VE_indirect_in_mean),
+    mean_VE_indirect_pr=mean(VE_indirect_pr_mean),
+    mean_p_direct_in=mean(p_direct_in),
+    mean_p_direct_pr=mean(p_direct_pr),
+    mean_VE_in=mean(VE_in_mean),
+    mean_VE_pr=mean(VE_pr_mean),
+    mean_VE_sym=mean(VE_sym_mean),
+    mean_VE_asym=mean(VE_asym_mean),
+    
+    median_ps=median(ps),
+    median_foi_ref=median(foi_ref),
+    median_foi_cov1=median(foi_cov1),
+    median_foi_cov2=median(foi_cov2),
+    median_foi_cov3=median(foi_cov3),
+    median_foi_cov4=median(foi_cov4),
+    median_foi_cov5=median(foi_cov5),
+    median_foi_cov6=median(foi_cov6), 
+    median_kk_in=median(kk_in),
+    median_kk_pr=median(kk_pr),
+    median_n_50_in=median(n_50_in),
+    median_n_50_pr=median(n_50_pr),
+    median_scale_in=median(scale_in),
+    median_scale_pr=median(scale_pr),
+    median_VE_direct_in=median(VE_direct_in),
+    median_VE_direct_pr=median(VE_direct_pr),
+    median_VE_indirect_in=median(VE_indirect_in_mean),
+    median_VE_indirect_pr=median(VE_indirect_pr_mean),
+    median_p_direct_in=median(p_direct_in),
+    median_p_direct_pr=median(p_direct_pr),
+    median_VE_in=median(VE_in_mean),
+    median_VE_pr=median(VE_pr_mean),
+    median_VE_sym=median(VE_sym_mean),
+    median_VE_asym=median(VE_asym_mean),
+    
+    lci_ps=quantile(ps, 0.025),
+    lci_foi_ref=quantile(foi_ref, 0.025),
+    lci_foi_cov1=quantile(foi_cov1, 0.025),
+    lci_foi_cov2=quantile(foi_cov2, 0.025),
+    lci_foi_cov3=quantile(foi_cov3, 0.025),
+    lci_foi_cov4=quantile(foi_cov4, 0.025),
+    lci_foi_cov5=quantile(foi_cov5, 0.025),
+    lci_foi_cov6=quantile(foi_cov6, 0.025),
+    lci_kk_in=quantile(kk_in, 0.025),
+    lci_kk_pr=quantile(kk_pr, 0.025),
+    lci_n_50_in=quantile(n_50_in, 0.025),
+    lci_n_50_pr=quantile(n_50_pr, 0.025),
+    lci_scale_in=quantile(scale_in, 0.025),
+    lci_scale_pr=quantile(scale_pr, 0.025),
+    lci_VE_direct_in=quantile(VE_direct_in, 0.025),
+    lci_VE_direct_pr=quantile(VE_direct_pr, 0.025),
+    lci_VE_indirect_in=quantile(VE_indirect_in_mean, 0.025),
+    lci_VE_indirect_pr=quantile(VE_indirect_pr_mean, 0.025),
+    lci_p_direct_in=quantile(p_direct_in, 0.025),
+    lci_p_direct_pr=quantile(p_direct_pr, 0.025),
+    lci_VE_in=quantile(VE_in_mean, 0.025),
+    lci_VE_pr=quantile(VE_pr_mean, 0.025),
+    lci_VE_sym=quantile(VE_sym_mean, 0.025),
+    lci_VE_asym=quantile(VE_asym_mean, 0.025),
+    
+        
+    uci_ps=quantile(ps, 0.975),
+    uci_foi_ref=quantile(foi_ref, 0.975),
+    uci_foi_cov1=quantile(foi_cov1, 0.975),
+    uci_foi_cov2=quantile(foi_cov2, 0.975),
+    uci_foi_cov3=quantile(foi_cov3, 0.975),
+    uci_foi_cov4=quantile(foi_cov4, 0.975),
+    uci_foi_cov5=quantile(foi_cov5, 0.975),
+    uci_foi_cov6=quantile(foi_cov6, 0.975),
+    uci_kk_in=quantile(kk_in, 0.975),
+    uci_kk_pr=quantile(kk_pr, 0.975),
+    uci_n_50_in=quantile(n_50_in, 0.975),
+    uci_n_50_pr=quantile(n_50_pr, 0.975),
+    uci_scale_in=quantile(scale_in, 0.975),
+    uci_scale_pr=quantile(scale_pr, 0.975),
+    uci_VE_direct_in=quantile(VE_direct_in, 0.975),
+    uci_VE_direct_pr=quantile(VE_direct_pr, 0.975),
+    uci_VE_indirect_in=quantile(VE_indirect_in_mean, 0.975),
+    uci_VE_indirect_pr=quantile(VE_indirect_pr_mean, 0.975),
+    uci_p_direct_in=quantile(p_direct_in, 0.975),
+    uci_p_direct_pr=quantile(p_direct_pr, 0.975),
+    uci_VE_in=quantile(VE_in_mean, 0.975),
+    uci_VE_pr=quantile(VE_pr_mean, 0.975),
+    uci_VE_sym=quantile(VE_sym_mean, 0.975),
+    uci_VE_asym=quantile(VE_asym_mean, 0.975)
+  )%>%
+  round(digits=2)
+est_params_summary
+```
+
+
+```{r visualise slope parameter k}
+ggplot(est_params, aes(x=kk_in))+
+  geom_histogram(binwidth = 0.02, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_in))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+
+ggplot(est_params, aes(x=kk_pr))+
+  geom_histogram(binwidth = 0.02, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_pr))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+```
+
+```{r visualise slope parameter k}
+ggplot(est_params, aes(x=kk_in))+
+  geom_density()+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_in))+
+  geom_density()+
+  theme_bw()+coord_cartesian()
+```
+
+```{r visualise slope parameter k}
+ggplot(est_params, aes(x=kk_pr))+
+  geom_density()+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_pr))+
+  geom_density()+
+  theme_bw()+coord_cartesian()
+```
+
+
+```{r read model}
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits")
+fit_neut_para<-readRDS("fit_neut_para_cov002.rds")
+```
+
+```{r name fit}
+fit<-fit_neut_para
+```
+
+
+### kkin 0 model
+
+Here the same model is run, except the slope parameter, k, for VEin is set to 0. It therefore assumes that there is no relationship between the candidate CoP and VEin.
+
+```{r kkin0 model run}
+trial_dat <- list(N=num_subjects_neuts, 
+                  C=neut_cc_data$C,
+                  A=neut_cc_data$A,
+                  vaccinated=neut_cc_data$vaccinated,
+                  Z=neut_cc_data$neuts.PB28_log10,
+                  pers_yrs_at_risk=neut_cc_data$pers_yrs_at_risk_cop,
+                  min_Z=min(neut_cc_data$neuts.PB28_log10),
+                  max_Z=max(neut_cc_data$neuts.PB28_log10),
+                  weight=neut_cc_data$neut_weight,
+                  cov1=neut_cc_data$HCW_0,
+                  cov2=neut_cc_data$HCW_1plus,
+                  cov3=neut_cc_data$sc_age_cen,
+                  cov4=neut_cc_data$obese,
+                  cov5=neut_cc_data$white,
+                  cov6=neut_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+
+model <- stan_model(file = 'Parametric_model_cov002_kkin0.stan')
+
+fit_neut_para_kkin0 <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_neut_para_kkin0)
+loo <- loo(log_lik)
+print(loo)
+
+#visualise paramaters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_neut_para_kkin0, pars=pars)
+traceplot(fit_neut_para_kkin0, pars=pars, inc_warmup = TRUE)
+pairs(fit_neut_para_kkin0, pars=pars)
+```
+
+
+```{r save as RDS}
+fit_neut_para_kkin0@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_neut_para_kkin0, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_neut_para_cov002_kkin0.rds")
+```
+
+### kkpr 0 model
+
+Here the same model is run, except the slope parameter, k, for VEpr is set to 0. It therefore assumes that there is no relationship between the candidate CoP and VEpr.
+
+```{r kkpr0 model run}
+trial_dat <- list(N=num_subjects_neuts, 
+                  C=neut_cc_data$C,
+                  A=neut_cc_data$A,
+                  vaccinated=neut_cc_data$vaccinated,
+                  Z=neut_cc_data$neuts.PB28_log10,
+                  pers_yrs_at_risk=neut_cc_data$pers_yrs_at_risk_cop,
+                  min_Z=min(neut_cc_data$neuts.PB28_log10),
+                  max_Z=max(neut_cc_data$neuts.PB28_log10),
+                  weight=neut_cc_data$neut_weight,
+                  cov1=neut_cc_data$HCW_0,
+                  cov2=neut_cc_data$HCW_1plus,
+                  cov3=neut_cc_data$sc_age_cen,
+                  cov4=neut_cc_data$obese,
+                  cov5=neut_cc_data$white,
+                  cov6=neut_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+
+model <- stan_model(file = 'Parametric_model_cov002_kkpr0.stan')
+fit_neut_para_kkpr0 <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_neut_para_kkpr0)
+loo <- loo(log_lik)
+print(loo)
+
+#visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_neut_para_kkpr0, pars=pars)
+traceplot(fit_neut_para_kkpr0, pars=pars, inc_warmup = TRUE)
+pairs(fit_neut_para_kkpr0, pars=pars)
+```
+
+
+```{r save as RDS}
+fit_neut_para_kkpr0@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_neut_para_kkpr0, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_neut_para_cov002_kkpr0.rds")
+```
+
+
+
+### kkin and kkpr 0
+Here the same model is run, except the slope parameter, k, for VEin and VEpr is set to 0. It therefore assumes that there is no relationship between the candidate CoP and VEin or VEpr.
+```{r kk0 model run}
+trial_dat <- list(N=num_subjects_neuts, 
+                  C=neut_cc_data$C,
+                  A=neut_cc_data$A,
+                  vaccinated=neut_cc_data$vaccinated,
+                  Z=neut_cc_data$neuts.PB28_log10,
+                  pers_yrs_at_risk=neut_cc_data$pers_yrs_at_risk_cop,
+                  min_Z=min(neut_cc_data$neuts.PB28_log10),
+                  max_Z=max(neut_cc_data$neuts.PB28_log10),
+                  weight=neut_cc_data$neut_weight,
+                  cov1=neut_cc_data$HCW_0,
+                  cov2=neut_cc_data$HCW_1plus,
+                  cov3=neut_cc_data$sc_age_cen,
+                  cov4=neut_cc_data$obese,
+                  cov5=neut_cc_data$white,
+                  cov6=neut_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+
+model <- stan_model(file = 'Parametric_model_cov002_kk0.stan')
+fit_neut_para_kk0 <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_neut_para_kk0)
+loo <- loo(log_lik)
+print(loo)
+
+#visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_neut_para_kk0, pars=pars)
+traceplot(fit_neut_para_kk0, pars=pars, inc_warmup = TRUE)
+pairs(fit_neut_para_kk0, pars=pars)
+```
+
+
+```{r save as RDS}
+fit_neut_para_kk0@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_neut_para_kk0, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_neut_para_cov002_kk0.rds")
+```
+
+
+
+## b. Spike antibodies
+
+The same models as above are run for the Spike binding antibodies outcome.
+
+### Baseline model
+
+```{r baseline model run}
+#spike_cc_data$spike_rbd_weight<-1
+trial_dat <- list(N=num_subjects_spike, 
+                  C=spike_cc_data$C,
+                  A=spike_cc_data$A,
+                  vaccinated=spike_cc_data$vaccinated,
+                  Z=spike_cc_data$igg.S.PB28_log10,
+                  pers_yrs_at_risk=spike_cc_data$pers_yrs_at_risk_cop,
+                  min_Z=min(spike_cc_data$igg.S.PB28_log10),
+                  max_Z=max(spike_cc_data$igg.S.PB28_log10),
+                  weight=spike_cc_data$spike_rbd_weight,
+                  cov1=spike_cc_data$HCW_0,
+                  cov2=spike_cc_data$HCW_1plus,
+                  cov3=spike_cc_data$sc_age_cen,
+                  cov4=spike_cc_data$obese,
+                  cov5=spike_cc_data$white,
+                  cov6=spike_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+
+model <- stan_model(file = 'Parametric_model_cov002.stan')
+fit_spike_para <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_spike_para)
+loo <- loo(log_lik)
+print(loo)
+
+#visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+
+print(fit_spike_para, pars=pars)
+traceplot(fit_spike_para, pars=pars, inc_warmup = TRUE)
+pairs(fit_spike_para, pars=pars)
+```
+
+
+```{r save as RDS}
+fit_spike_para@stanmodel@dso <- new("cxxdso")
+#saveRDS(fit_spike_para, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_spike_para_cov002.rds")
+#saveRDS(fit_spike_para, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_spike_para_cov002_noweights.rds")
+```
+
+
+```{r posterior distributions}
+est_params<-data.frame(rstan::extract(fit_spike_para, pars=pars))
+hist(est_params$kk_in, br=100)
+hist(est_params$kk_pr, br=100)
+hist(est_params$kk_in, br=1000, xlim = c(0,3))
+hist(est_params$kk_pr, br=1000, xlim = c(0,3))
+hist(est_params$n_50_in, br=100)
+hist(est_params$n_50_pr, br=100)
+hist(est_params$VE_direct_in, br=100)
+hist(est_params$VE_direct_pr, br=100)
+hist(est_params$VE_indirect_in, br=100)
+hist(est_params$VE_indirect_pr, br=100)
+hist(est_params$ps, br=100)
+hist(est_params$scale_in, br=100)
+hist(est_params$scale_pr, br=100)
+```
+
+```{r summarise}
+est_params_summary<-est_params %>%
+  summarise(
+    mean_ps=mean(ps),
+    mean_foi_ref=mean(foi_ref),
+    mean_foi_cov1=mean(foi_cov1),
+    mean_foi_cov2=mean(foi_cov2),
+    mean_foi_cov3=mean(foi_cov3),
+    mean_foi_cov4=mean(foi_cov4),
+    mean_foi_cov5=mean(foi_cov5),
+    mean_foi_cov6=mean(foi_cov6),
+    mean_kk_in=mean(kk_in),
+    mean_kk_pr=mean(kk_pr),
+    mean_n_50_in=mean(n_50_in),
+    mean_n_50_pr=mean(n_50_pr),
+    mean_scale_in=mean(scale_in),
+    mean_scale_pr=mean(scale_pr),
+    mean_VE_direct_in=mean(VE_direct_in),
+    mean_VE_direct_pr=mean(VE_direct_pr),
+    mean_VE_indirect_in=mean(VE_indirect_in_mean),
+    mean_VE_indirect_pr=mean(VE_indirect_pr_mean),
+    mean_p_direct_in=mean(p_direct_in),
+    mean_p_direct_pr=mean(p_direct_pr),
+    mean_p_indirect_in=1-mean(p_direct_in),
+    mean_p_indirect_pr=1-mean(p_direct_pr),
+    mean_VE_in=mean(VE_in_mean),
+    mean_VE_pr=mean(VE_pr_mean),
+    mean_VE_sym=mean(VE_sym_mean),
+    mean_VE_asym=mean(VE_asym_mean),
+    
+    median_ps=median(ps),
+    median_foi_ref=median(foi_ref),
+    median_foi_cov1=median(foi_cov1),
+    median_foi_cov2=median(foi_cov2),
+    median_foi_cov3=median(foi_cov3),
+    median_foi_cov4=median(foi_cov4),
+    median_foi_cov5=median(foi_cov5),
+    median_foi_cov6=median(foi_cov6), 
+    median_kk_in=median(kk_in),
+    median_kk_pr=median(kk_pr),
+    median_n_50_in=median(n_50_in),
+    median_n_50_pr=median(n_50_pr),
+    median_scale_in=median(scale_in),
+    median_scale_pr=median(scale_pr),
+    median_VE_direct_in=median(VE_direct_in),
+    median_VE_direct_pr=median(VE_direct_pr),
+    median_VE_indirect_in=median(VE_indirect_in_mean),
+    median_VE_indirect_pr=median(VE_indirect_pr_mean),
+    median_p_direct_in=median(p_direct_in),
+    median_p_direct_pr=median(p_direct_pr),
+    median_VE_in=median(VE_in_mean),
+    median_VE_pr=median(VE_pr_mean),
+    median_VE_sym=median(VE_sym_mean),
+    median_VE_asym=median(VE_asym_mean),
+    
+    lci_ps=quantile(ps, 0.025),
+    lci_foi_ref=quantile(foi_ref, 0.025),
+    lci_foi_cov1=quantile(foi_cov1, 0.025),
+    lci_foi_cov2=quantile(foi_cov2, 0.025),
+    lci_foi_cov3=quantile(foi_cov3, 0.025),
+    lci_foi_cov4=quantile(foi_cov4, 0.025),
+    lci_foi_cov5=quantile(foi_cov5, 0.025),
+    lci_foi_cov6=quantile(foi_cov6, 0.025),
+    lci_kk_in=quantile(kk_in, 0.025),
+    lci_kk_pr=quantile(kk_pr, 0.025),
+    lci_n_50_in=quantile(n_50_in, 0.025),
+    lci_n_50_pr=quantile(n_50_pr, 0.025),
+    lci_scale_in=quantile(scale_in, 0.025),
+    lci_scale_pr=quantile(scale_pr, 0.025),
+    lci_VE_direct_in=quantile(VE_direct_in, 0.025),
+    lci_VE_direct_pr=quantile(VE_direct_pr, 0.025),
+    lci_VE_indirect_in=quantile(VE_indirect_in_mean, 0.025),
+    lci_VE_indirect_pr=quantile(VE_indirect_pr_mean, 0.025),
+    lci_p_direct_in=quantile(p_direct_in, 0.025),
+    lci_p_direct_pr=quantile(p_direct_pr, 0.025),
+    lci_p_indirect_in=1-quantile(p_direct_in, 0.975),
+    lci_p_indirect_pr=1-quantile(p_direct_pr, 0.975),
+    lci_VE_in=quantile(VE_in_mean, 0.025),
+    lci_VE_pr=quantile(VE_pr_mean, 0.025),
+    lci_VE_sym=quantile(VE_sym_mean, 0.025),
+    lci_VE_asym=quantile(VE_asym_mean, 0.025),
+    
+        
+    uci_ps=quantile(ps, 0.975),
+    uci_foi_ref=quantile(foi_ref, 0.975),
+    uci_foi_cov1=quantile(foi_cov1, 0.975),
+    uci_foi_cov2=quantile(foi_cov2, 0.975),
+    uci_foi_cov3=quantile(foi_cov3, 0.975),
+    uci_foi_cov4=quantile(foi_cov4, 0.975),
+    uci_foi_cov5=quantile(foi_cov5, 0.975),
+    uci_foi_cov6=quantile(foi_cov6, 0.975),
+    uci_kk_in=quantile(kk_in, 0.975),
+    uci_kk_pr=quantile(kk_pr, 0.975),
+    uci_n_50_in=quantile(n_50_in, 0.975),
+    uci_n_50_pr=quantile(n_50_pr, 0.975),
+    uci_scale_in=quantile(scale_in, 0.975),
+    uci_scale_pr=quantile(scale_pr, 0.975),
+    uci_VE_direct_in=quantile(VE_direct_in, 0.975),
+    uci_VE_direct_pr=quantile(VE_direct_pr, 0.975),
+    uci_VE_indirect_in=quantile(VE_indirect_in_mean, 0.975),
+    uci_VE_indirect_pr=quantile(VE_indirect_pr_mean, 0.975),
+    uci_p_direct_in=quantile(p_direct_in, 0.975),
+    uci_p_direct_pr=quantile(p_direct_pr, 0.975),
+    uci_p_indirect_in=1-quantile(p_direct_in, 0.025),
+    uci_p_indirect_pr=1-quantile(p_direct_pr, 0.025),
+    uci_VE_in=quantile(VE_in_mean, 0.975),
+    uci_VE_pr=quantile(VE_pr_mean, 0.975),
+    uci_VE_sym=quantile(VE_sym_mean, 0.975),
+    uci_VE_asym=quantile(VE_asym_mean, 0.975)
+  )%>%
+  round(digits=2)
+est_params_summary
+```
+
+
+```{r visualise slope parameter k}
+ggplot(est_params, aes(x=kk_in))+
+  geom_histogram(binwidth = 0.02, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_in))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+
+ggplot(est_params, aes(x=kk_pr))+
+  geom_histogram(binwidth = 0.02, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_pr))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+```
+
+```{r visualise slope parameter k}
+ggplot(est_params, aes(x=kk_in))+
+  geom_density()+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_in))+
+  geom_density()+
+  theme_bw()+coord_cartesian()
+```
+
+```{r visualise slope parameter k}
+ggplot(est_params, aes(x=kk_pr))+
+  geom_density()+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_pr))+
+  geom_density()+
+  theme_bw()+coord_cartesian()
+```
+
+
+```{r read model}
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits")
+fit_spike_para<-readRDS("fit_spike_para_cov002.rds")
+```
+
+```{r name fit}
+fit<-fit_spike_para
+```
+
+
+### kkin 0 model
+Here the same model is run, except the slope parameter, k, for VEin is set to 0. It therefore assumes that there is no relationship between the candidate CoP and VEin.
+
+```{r kkin0 model run}
+trial_dat <- list(N=num_subjects_RBD, 
+                  C=spike_cc_data$C,
+                  A=spike_cc_data$A,
+                  vaccinated=spike_cc_data$vaccinated,
+                  Z=spike_cc_data$igg.S.PB28_log10,
+                  pers_yrs_at_risk=spike_cc_data$pers_yrs_at_risk_cop,
+                  
+                  min_Z=min(spike_cc_data$igg.S.PB28_log10),
+                  max_Z=max(spike_cc_data$igg.S.PB28_log10),
+                  weight=spike_cc_data$spike_rbd_weight,
+                  cov1=spike_cc_data$HCW_0,
+                  cov2=spike_cc_data$HCW_1plus,
+                  cov3=spike_cc_data$sc_age_cen,
+                  cov4=spike_cc_data$obese,
+                  cov5=spike_cc_data$white,
+                  cov6=spike_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+
+model <- stan_model(file = 'Parametric_model_cov002_kkin0.stan')
+
+fit_spike_para_kkin0 <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_spike_para_kkin0)
+loo <- loo(log_lik)
+print(loo)
+#visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_spike_para_kkin0, pars=pars)
+traceplot(fit_spike_para_kkin0, pars=pars, inc_warmup = TRUE)
+pairs(fit_spike_para_kkin0, pars=pars)
+```
+
+
+```{rsave as RDS}
+fit_spike_para_kkin0@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_spike_para_kkin0, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_spike_para_cov002_kkin0.rds")
+```
+
+### kkpr 0 model
+Here the same model is run, except the slope parameter, k, for VEpr is set to 0. It therefore assumes that there is no relationship between the candidate CoP and VEpr.
+
+```{r kkpr0 model run}
+trial_dat <- list(N=num_subjects_RBD, 
+                  C=spike_cc_data$C,
+                  A=spike_cc_data$A,
+                  vaccinated=spike_cc_data$vaccinated,
+                  Z=spike_cc_data$igg.S.PB28_log10,
+                  pers_yrs_at_risk=spike_cc_data$pers_yrs_at_risk_cop,
+                  min_Z=min(spike_cc_data$igg.S.PB28_log10),
+                  max_Z=max(spike_cc_data$igg.S.PB28_log10),
+                  weight=spike_cc_data$spike_rbd_weight,
+                  cov1=spike_cc_data$HCW_0,
+                  cov2=spike_cc_data$HCW_1plus,
+                  cov3=spike_cc_data$sc_age_cen,
+                  cov4=spike_cc_data$obese,
+                  cov5=spike_cc_data$white,
+                  cov6=spike_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+
+model <- stan_model(file = 'Parametric_model_cov002_kkpr0.stan')
+fit_spike_para_kkpr0 <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_spike_para_kkpr0)
+loo <- loo(log_lik)
+print(loo)
+
+#visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_spike_para_kkpr0, pars=pars)
+traceplot(fit_spike_para_kkpr0, pars=pars, inc_warmup = TRUE)
+pairs(fit_spike_para_kkpr0, pars=pars)
+```
+
+```{r save as RDS}
+fit_spike_para_kkpr0@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_spike_para_kkpr0, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_spike_para_cov002_kkpr0.rds")
+```
+
+
+### kkin and kkpr 0
+Here the same model is run, except the slope parameter, k, for VEin and VEpr is set to 0. It therefore assumes that there is no relationship between the candidate CoP and VEin or VEpr.
+
+```{r kk0 model run}
+trial_dat <- list(N=num_subjects_RBD, 
+                  C=spike_cc_data$C,
+                  A=spike_cc_data$A,
+                  vaccinated=spike_cc_data$vaccinated,
+                  Z=spike_cc_data$igg.S.PB28_log10,
+                  pers_yrs_at_risk=spike_cc_data$pers_yrs_at_risk_cop,
+                  min_Z=min(spike_cc_data$igg.S.PB28_log10),
+                  max_Z=max(spike_cc_data$igg.S.PB28_log10),
+                  weight=spike_cc_data$spike_rbd_weight,
+                  cov1=spike_cc_data$HCW_0,
+                  cov2=spike_cc_data$HCW_1plus,
+                  cov3=spike_cc_data$sc_age_cen,
+                  cov4=spike_cc_data$obese,
+                  cov5=spike_cc_data$white,
+                  cov6=spike_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+
+model <- stan_model(file = 'Parametric_model_cov002_kk0.stan')
+fit_spike_para_kk0 <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_spike_para_kk0)
+loo <- loo(log_lik)
+print(loo)
+
+#visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_spike_para_kk0, pars=pars)
+traceplot(fit_spike_para_kk0, pars=pars, inc_warmup = TRUE)
+pairs(fit_spike_para_kk0, pars=pars)
+```
+
+
+```{r save as RDS}
+fit_spike_para_kk0@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_spike_para_kk0, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_spike_para_cov002_kk0.rds")
+```
+
+
+## c. RBD antibodies
+
+The same models as above are run for the RBD binding antibodies outcome.
+
+### Baseline model
+
+```{r baseline model run}
+RBD_cc_data$spike_rbd_weight<-1
+trial_dat <- list(N=num_subjects_RBD, 
+                  C=RBD_cc_data$C,
+                  A=RBD_cc_data$A,
+                  vaccinated=RBD_cc_data$vaccinated,
+                  Z=RBD_cc_data$igg.RBD.PB28_log10,
+                  pers_yrs_at_risk=RBD_cc_data$pers_yrs_at_risk_cop,
+                  min_Z=min(RBD_cc_data$igg.RBD.PB28_log10),
+                  max_Z=max(RBD_cc_data$igg.RBD.PB28_log10),
+                  weight=RBD_cc_data$spike_rbd_weight,
+                  cov1=RBD_cc_data$HCW_0,
+                  cov2=RBD_cc_data$HCW_1plus,
+                  cov3=RBD_cc_data$sc_age_cen,
+                  cov4=RBD_cc_data$obese,
+                  cov5=RBD_cc_data$white,
+                  cov6=RBD_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+
+model <- stan_model(file = 'Parametric_model_cov002.stan')
+fit_RBD_para <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_RBD_para)
+loo <- loo(log_lik)
+print(loo)
+
+#visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_RBD_para, pars=pars)
+traceplot(fit_RBD_para, pars=pars, inc_warmup = TRUE)
+pairs(fit_RBD_para, pars=pars)
+```
+
+
+```{r save as RDS}
+fit_RBD_para@stanmodel@dso <- new("cxxdso")
+#saveRDS(fit_RBD_para, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_para_cov002.rds")
+#saveRDS(fit_RBD_para, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_para_cov002_noweights.rds")
+```
+
+
+```{r posterior distributions}
+est_params<-data.frame(rstan::extract(fit_RBD_para, pars=pars))
+hist(est_params$kk_in, br=100)
+hist(est_params$kk_pr, br=100)
+hist(est_params$kk_in, br=1000, xlim = c(0,3))
+hist(est_params$kk_pr, br=1000, xlim = c(0,3))
+hist(est_params$n_50_in, br=100)
+hist(est_params$n_50_pr, br=100)
+hist(est_params$VE_direct_in, br=100)
+hist(est_params$VE_direct_pr, br=100)
+hist(est_params$VE_indirect_in, br=100)
+hist(est_params$VE_indirect_pr, br=100)
+hist(est_params$ps, br=100)
+hist(est_params$scale_in, br=100)
+hist(est_params$scale_pr, br=100)
+```
+
+```{r summarise}
+est_params_summary<-est_params %>%
+  summarise(
+    mean_ps=mean(ps),
+    mean_foi_ref=mean(foi_ref),
+    mean_foi_cov1=mean(foi_cov1),
+    mean_foi_cov2=mean(foi_cov2),
+    mean_foi_cov3=mean(foi_cov3),
+    mean_foi_cov4=mean(foi_cov4),
+    mean_foi_cov5=mean(foi_cov5),
+    mean_foi_cov6=mean(foi_cov6),
+    mean_kk_in=mean(kk_in),
+    mean_kk_pr=mean(kk_pr),
+    mean_n_50_in=mean(n_50_in),
+    mean_n_50_pr=mean(n_50_pr),
+    mean_scale_in=mean(scale_in),
+    mean_scale_pr=mean(scale_pr),
+    mean_VE_direct_in=mean(VE_direct_in),
+    mean_VE_direct_pr=mean(VE_direct_pr),
+    mean_VE_indirect_in=mean(VE_indirect_in_mean),
+    mean_VE_indirect_pr=mean(VE_indirect_pr_mean),
+    mean_p_direct_in=mean(p_direct_in),
+    mean_p_direct_pr=mean(p_direct_pr),
+    mean_p_indirect_in=1-mean(p_direct_in),
+    mean_p_indirect_pr=1-mean(p_direct_pr),
+    mean_VE_in=mean(VE_in_mean),
+    mean_VE_pr=mean(VE_pr_mean),
+    mean_VE_sym=mean(VE_sym_mean),
+    mean_VE_asym=mean(VE_asym_mean),
+    
+    median_ps=median(ps),
+    median_foi_ref=median(foi_ref),
+    median_foi_cov1=median(foi_cov1),
+    median_foi_cov2=median(foi_cov2),
+    median_foi_cov3=median(foi_cov3),
+    median_foi_cov4=median(foi_cov4),
+    median_foi_cov5=median(foi_cov5),
+    median_foi_cov6=median(foi_cov6), 
+    median_kk_in=median(kk_in),
+    median_kk_pr=median(kk_pr),
+    median_n_50_in=median(n_50_in),
+    median_n_50_pr=median(n_50_pr),
+    median_scale_in=median(scale_in),
+    median_scale_pr=median(scale_pr),
+    median_VE_direct_in=median(VE_direct_in),
+    median_VE_direct_pr=median(VE_direct_pr),
+    median_VE_indirect_in=median(VE_indirect_in_mean),
+    median_VE_indirect_pr=median(VE_indirect_pr_mean),
+    median_p_direct_in=median(p_direct_in),
+    median_p_direct_pr=median(p_direct_pr),
+    median_VE_in=median(VE_in_mean),
+    median_VE_pr=median(VE_pr_mean),
+    median_VE_sym=median(VE_sym_mean),
+    median_VE_asym=median(VE_asym_mean),
+    
+    lci_ps=quantile(ps, 0.025),
+    lci_foi_ref=quantile(foi_ref, 0.025),
+    lci_foi_cov1=quantile(foi_cov1, 0.025),
+    lci_foi_cov2=quantile(foi_cov2, 0.025),
+    lci_foi_cov3=quantile(foi_cov3, 0.025),
+    lci_foi_cov4=quantile(foi_cov4, 0.025),
+    lci_foi_cov5=quantile(foi_cov5, 0.025),
+    lci_foi_cov6=quantile(foi_cov6, 0.025),
+    lci_kk_in=quantile(kk_in, 0.025),
+    lci_kk_pr=quantile(kk_pr, 0.025),
+    lci_n_50_in=quantile(n_50_in, 0.025),
+    lci_n_50_pr=quantile(n_50_pr, 0.025),
+    lci_scale_in=quantile(scale_in, 0.025),
+    lci_scale_pr=quantile(scale_pr, 0.025),
+    lci_VE_direct_in=quantile(VE_direct_in, 0.025),
+    lci_VE_direct_pr=quantile(VE_direct_pr, 0.025),
+    lci_VE_indirect_in=quantile(VE_indirect_in_mean, 0.025),
+    lci_VE_indirect_pr=quantile(VE_indirect_pr_mean, 0.025),
+    lci_p_direct_in=quantile(p_direct_in, 0.025),
+    lci_p_direct_pr=quantile(p_direct_pr, 0.025),
+    lci_p_indirect_in=1-quantile(p_direct_in, 0.975),
+    lci_p_indirect_pr=1-quantile(p_direct_pr, 0.975),
+    lci_VE_in=quantile(VE_in_mean, 0.025),
+    lci_VE_pr=quantile(VE_pr_mean, 0.025),
+    lci_VE_sym=quantile(VE_sym_mean, 0.025),
+    lci_VE_asym=quantile(VE_asym_mean, 0.025),
+    
+        
+    uci_ps=quantile(ps, 0.975),
+    uci_foi_ref=quantile(foi_ref, 0.975),
+    uci_foi_cov1=quantile(foi_cov1, 0.975),
+    uci_foi_cov2=quantile(foi_cov2, 0.975),
+    uci_foi_cov3=quantile(foi_cov3, 0.975),
+    uci_foi_cov4=quantile(foi_cov4, 0.975),
+    uci_foi_cov5=quantile(foi_cov5, 0.975),
+    uci_foi_cov6=quantile(foi_cov6, 0.975),
+    uci_kk_in=quantile(kk_in, 0.975),
+    ci_kk_pr=quantile(kk_pr, 0.975),
+    uci_n_50_in=quantile(n_50_in, 0.975),
+    uci_n_50_pr=quantile(n_50_pr, 0.975),
+    uci_scale_in=quantile(scale_in, 0.975),
+    uci_scale_pr=quantile(scale_pr, 0.975),
+    uci_VE_direct_in=quantile(VE_direct_in, 0.975),
+    uci_VE_direct_pr=quantile(VE_direct_pr, 0.975),
+    uci_VE_indirect_in=quantile(VE_indirect_in_mean, 0.975),
+    uci_VE_indirect_pr=quantile(VE_indirect_pr_mean, 0.975),
+    uci_p_direct_in=quantile(p_direct_in, 0.975),
+    uci_p_direct_pr=quantile(p_direct_pr, 0.975),
+    uci_p_indirect_in=1-quantile(p_direct_in, 0.025),
+    uci_p_indirect_pr=1-quantile(p_direct_pr, 0.025),
+    uci_VE_in=quantile(VE_in_mean, 0.975),
+    uci_VE_pr=quantile(VE_pr_mean, 0.975),
+    uci_VE_sym=quantile(VE_sym_mean, 0.975),
+    uci_VE_asym=quantile(VE_asym_mean, 0.975)
+  )%>%
+  round(digits=2)
+est_params_summary
+```
+
+
+```{r visualise slope parameter k}
+ggplot(est_params, aes(x=kk_in))+
+  geom_histogram(binwidth = 0.02, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_in))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+
+ggplot(est_params, aes(x=kk_pr))+
+  geom_histogram(binwidth = 0.02, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_pr))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+```
+
+```{r visualise slope parameter k}
+ggplot(est_params, aes(x=kk_in))+
+  geom_density()+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_in))+
+  geom_density()+
+  theme_bw()+coord_cartesian()
+```
+
+```{r visualise slope parameter k}
+ggplot(est_params, aes(x=kk_pr))+
+  geom_density()+
+  theme_bw()+coord_cartesian(x=c(0,2))
+
+ggplot(est_params, aes(x=kk_pr))+
+  geom_density()+
+  theme_bw()+coord_cartesian()
+```
+
+
+```{r read model}
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits")
+fit_RBD_para<-readRDS("fit_RBD_para_cov002.rds")
+```
+
+```{r name fit}
+fit<-fit_RBD_para
+```
+HERE
+
+### kkin 0 model
+Here the same model is run, except the slope parameter, k, for VEin is set to 0. It therefore assumes that there is no relationship between the candidate CoP and VEin.
+
+```{r kkin0 model run}
+trial_dat <- list(N=num_subjects_RBD, 
+                  C=RBD_cc_data$C,
+                  A=RBD_cc_data$A,
+                  vaccinated=RBD_cc_data$vaccinated,
+                  Z=RBD_cc_data$igg.RBD.PB28_log10,
+                  pers_yrs_at_risk=RBD_cc_data$pers_yrs_at_risk_cop,
+                  min_Z=min(RBD_cc_data$igg.RBD.PB28_log10),
+                  max_Z=max(RBD_cc_data$igg.RBD.PB28_log10),
+                  weight=RBD_cc_data$spike_rbd_weight,
+                  cov1=RBD_cc_data$HCW_0,
+                  cov2=RBD_cc_data$HCW_1plus,
+                  cov3=RBD_cc_data$sc_age_cen,
+                  cov4=RBD_cc_data$obese,
+                  cov5=RBD_cc_data$white,
+                  cov6=RBD_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+
+model <- stan_model(file = 'Parametric_model_cov002_kkin0.stan')
+
+fit_RBD_para_kkin0 <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_RBD_para_kkin0)
+loo <- loo(log_lik)
+print(loo)
+#visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_RBD_para_kkin0, pars=pars)
+traceplot(fit_RBD_para_kkin0, pars=pars, inc_warmup = TRUE)
+pairs(fit_RBD_para_kkin0, pars=pars)
+```
+
+
+```{r save as RDS}
+fit_RBD_para_kkin0@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_RBD_para_kkin0, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_para_cov002_kkin0.rds")
+```
+
+
+### kkpr 0 model
+Here the same model is run, except the slope parameter, k, for VEpr is set to 0. It therefore assumes that there is no relationship between the candidate CoP and VEpr.
+```{r kkpr0 model run}
+trial_dat <- list(N=num_subjects_RBD, 
+                  C=RBD_cc_data$C,
+                  A=RBD_cc_data$A,
+                  vaccinated=RBD_cc_data$vaccinated,
+                  Z=RBD_cc_data$igg.RBD.PB28_log10,
+                  pers_yrs_at_risk=RBD_cc_data$pers_yrs_at_risk_cop,
+                  min_Z=min(RBD_cc_data$igg.RBD.PB28_log10),
+                  max_Z=max(RBD_cc_data$igg.RBD.PB28_log10),
+                  weight=RBD_cc_data$spike_rbd_weight,
+                  cov1=RBD_cc_data$HCW_0,
+                  cov2=RBD_cc_data$HCW_1plus,
+                  cov3=RBD_cc_data$sc_age_cen,
+                  cov4=RBD_cc_data$obese,
+                  cov5=RBD_cc_data$white,
+                  cov6=RBD_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+model <- stan_model(file = 'Parametric_model_cov002_kkpr0.stan')
+fit_RBD_para_kkpr0 <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_RBD_para_kkpr0)
+loo <- loo(log_lik)
+print(loo)
+
+#visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_RBD_para_kkpr0, pars=pars)
+traceplot(fit_RBD_para_kkpr0, pars=pars, inc_warmup = TRUE)
+pairs(fit_RBD_para_kkpr0, pars=pars)
+```
+
+```{r save as RDS}
+fit_RBD_para_kkpr0@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_RBD_para_kkpr0, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_para_cov002_kkpr.rds")
+```
+
+
+### kkin and kkpr 0
+
+Here the same model is run, except the slope parameter, k, for VEin and VEpr is set to 0. It therefore assumes that there is no relationship between the candidate CoP and VEin or VEpr.
+```{r kk0 model run}
+trial_dat <- list(N=num_subjects_RBD, 
+                  C=RBD_cc_data$C,
+                  A=RBD_cc_data$A,
+                  vaccinated=RBD_cc_data$vaccinated,
+                  Z=RBD_cc_data$igg.RBD.PB28_log10,
+                  pers_yrs_at_risk=RBD_cc_data$pers_yrs_at_risk_cop,
+                  min_Z=min(RBD_cc_data$igg.RBD.PB28_log10),
+                  max_Z=max(RBD_cc_data$igg.RBD.PB28_log10),
+                  weight=RBD_cc_data$spike_rbd_weight,
+                  cov1=RBD_cc_data$HCW_0,
+                  cov2=RBD_cc_data$HCW_1plus,
+                  cov3=RBD_cc_data$sc_age_cen,
+                  cov4=RBD_cc_data$obese,
+                  cov5=RBD_cc_data$white,
+                  cov6=RBD_cc_data$comorbidity
+)
+setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
+getwd()
+
+model <- stan_model(file = 'Parametric_model_cov002_kk0.stan')
+fit_RBD_para_kk0 <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
+```
+
+```{r evaluate model}
+#log likelihood
+log_lik <- extract_log_lik(fit_RBD_para_kk0)
+loo <- loo(log_lik)
+print(loo)
+
+#visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+print(fit_RBD_para_kk0, pars=pars)
+traceplot(fit_RBD_para_kk0, pars=pars, inc_warmup = TRUE)
+pairs(fit_RBD_para_kk0, pars=pars)
+```
+
+```{r save as RDS}
+fit_RBD_para_kk0@stanmodel@dso <- new("cxxdso")
+saveRDS(fit_RBD_para_kk0, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_para_cov002_kk0.rds")
+```
+
