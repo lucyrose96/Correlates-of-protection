@@ -1,0 +1,53 @@
+---
+title: "Combine results"
+author: "Lucy Williams"
+output: html_document
+---
+
+This file provides code for combining the results from multiple simulations (parametric or non-parametric)
+
+```{r setup}
+library(readr)
+```
+
+```{r read datasets}
+# Initialize a list to store the datasets
+dataset_list <- list()
+# Load each dataset and save it as a separate R object
+for (i in 1:1000) {
+  # Generate the filename
+  filename <- paste0("results_para.", i, ".csv")#change to nonpara throughout for non-parametric results
+  # Load the dataset
+  dataset <- read.csv(filename)
+  # Save the dataset as a separate R object
+  assign(paste0("results_para_", i), dataset)
+  # Optionally, you can also store the dataset in the list
+  dataset_list[[i]] <- dataset
+}
+```
+
+```{r combine}
+combined_dataset <- NULL
+# Combine the datasets while adding an index column
+for (i in 1:1000) {
+  # Get the name of the dataset object
+  dataset_name <- paste0("results_sc2_para_", i)
+  # Get the current dataset
+  current_dataset <- get(dataset_name)
+  # Add a new column indicating the index number
+  current_dataset$index <- i
+  # Combine the current dataset with the existing combined dataset
+  if (is.null(combined_dataset)) {
+    combined_dataset <- current_dataset
+  } else {
+    combined_dataset <- rbind(combined_dataset, current_dataset)
+  }
+}
+```
+
+
+```{r save}
+getwd()
+write.csv(combined_dataset, "results_p.csv", row.names = FALSE)#parametric
+#write.csv(combined_dataset, "results_np.csv", row.names = FALSE)#non-parametric
+```
