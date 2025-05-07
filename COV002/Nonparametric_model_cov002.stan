@@ -1,11 +1,3 @@
-// Stan model for oint analysis of asymptomatic and symptomatic cases
-// in COVID-19 vaccine trial data
-//Nicholas Grassly 13 Jan 2022 - added CoP splines
-//splines code from https://mc-stan.org/users/documentation/case-studies/splines_in_stan.html
-//apparently splines are used quite often in logistic models with a logit link 
-//e.g. see https://www.hds.utc.fr/~tdenoeux/dokuwiki/_media/en/splines.pdf
-//essentially this is like a GAM for VE_in and VE_pr in a joint framework
-
 functions {
   vector build_b_spline(real[] t, real[] ext_knots, int ind, int order);
   vector build_b_spline(real[] t, real[] ext_knots, int ind, int order) {
@@ -47,9 +39,9 @@ data {
   int spline_length;        //number of discrete points in the spline
   real X[spline_length];    //immune CoP values for spline
   real dX;                  //step size of immune CoP
-  int Z_index[N];          //value of Z as location in spline (x position)
+  int Z_index[N];           //value of Z as location in spline (x position)
   
-  real<lower=0> pers_yrs_at_risk[N]; //removed for now (for the simulations)//added back
+  real<lower=0> pers_yrs_at_risk[N];
   real cov1[N]; //HCW 0 covid patients
   real cov2[N]; //HCW 1+ covid patients
   real cov3[N]; // age (years)
@@ -88,12 +80,10 @@ parameters {
   //controlled VE_in spline parameters
   row_vector[num_basis] a_raw;
   real a0;  // intercept - i think this is the slope when multiplied by X
-  //real<lower=0> tau;
   
   //controlled VE_pr spline parameters
   row_vector[num_basis] a_raw_pr;
   real a0_pr;  // intercept
-  //real<lower=0> tau_pr;
 }
 
 transformed parameters {
@@ -109,14 +99,10 @@ transformed parameters {
   row_vector[num_basis] a_pr; // spline coefficients
   vector[spline_length] cVE_pr;
   
-  //a = a_raw*tau;
   a = a_raw;
- // cVE = a0*to_vector(X) + to_vector(a*B);
   cVE = a0 + to_vector(a*B);
   
-  //a_pr = a_raw_pr*tau_pr;
   a_pr = a_raw_pr;
-  //cVE_pr = a0_pr*to_vector(X) + to_vector(a_pr*B_pr);
   cVE_pr = a0_pr + to_vector(a_pr*B_pr);
   
 for (i in 1:N){
@@ -138,12 +124,9 @@ model {
   //priors
   a_raw ~ normal(0, 1);
   a0 ~ normal(-5, 2);
-  //tau ~ normal(0, 1);
- 
   
   a_raw_pr ~ normal(0, 1);
   a0_pr ~ normal(-5, 2);
-  //tau_pr ~ normal(0, 1);
 
   //likelihood
   for(i in 1:N){ 
