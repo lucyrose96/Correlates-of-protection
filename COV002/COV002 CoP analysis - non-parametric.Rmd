@@ -1,5 +1,5 @@
 ---
-title: "4. COV002 CoP analysis - non-parametric"
+title: "COV002 CoP analysis - non-parametric"
 output: html_document
 ---
 
@@ -11,32 +11,10 @@ This file provides the code for running the non-parametric Rstan model for the C
 - RBD binding antibodies
 
 
-
-*Notes*
-The final models are generated with joint_analysis_CoP_nonparametric_jan24_priors_oxford.stan, (priors = a_raw ~ normal(0, 1); a0 ~ normal(-5, 2)). 
-
-- fit_neut_nonpara2_efficacy_cov002_CoP_march_3knots_log10.rds
-- fit_spike_nonpara2_efficacy_cov002_CoP_march_3knots_log10.rds
-- fit_rbd_nonpara2_efficacy_cov002_CoP_march_3knots_log10.rds
-
-Non-weighted sensitivity:
-
-- fit_neut_nonpara2_efficacy_cov002_CoP_march_3knots_log10_noweight.rds
-- fit_spike_nonpara2_efficacy_cov002_CoP_march_3knots_log10_noweight.rds
-- fit_rbd_nonpara2_efficacy_cov002_CoP_march_3knots_log10_noweight.rds
-
 # 1. Setup
 
-```{r setup 1, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-#knitr::opts_knit$set(root.dir = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
-knitr::opts_knit$set(root.dir = "C:/Users/lucyr/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#laptop
-```
 
-```{r setup 2}
-#setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
-setwd("C:/Users/lucyr/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#laptop
-getwd()
+```{r setup}
 library("ggplot2")
 library("rstan")
 library("gridExtra")
@@ -127,8 +105,6 @@ trial_dat <- list(N=num_subjects_neuts,
                   cov6=neut_cc_data$comorbidity
                   
 )
-setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
-getwd()
 model <- stan_model(file = 'Nonparametric_model_cov002.stan')
 fit_neut_nonpara <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
 ```
@@ -192,8 +168,6 @@ trial_dat <- list(N=num_subjects_spike,
                   cov6=spike_cc_data$comorbidity
                   
 )
-setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
-getwd()
 model <- stan_model(file = 'Nonparametric_model_cov002.stan')
 fit_spike_nonpara <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
 ```
@@ -257,8 +231,6 @@ trial_dat <- list(N=num_subjects_RBD,
                   cov6=RBD_cc_data$comorbidity
                   
 )
-setwd("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates models")#desktop
-getwd()
 model <- stan_model(file = 'Nonparametric_model_cov002.stan')
 fit_RBD_nonpara <- sampling(object = model, data = trial_dat, chains = 4, cores = 4) 
 ```
