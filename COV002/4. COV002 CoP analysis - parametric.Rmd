@@ -16,19 +16,6 @@ The baseline model for each was the one used to generate the main results in the
 
 We also ran models in which we set the slope parameter, k, to 0 for either VEin or VEpr. This was for the Savage-Dickey ratio calculation. The densities of the prior and posterior distributions at k = 0 were used to calculate the Savage-Dickey density ratio (see supplementary methods).
 
-*Notes*
-In the previous file I established the baseline model - mod7. Here I develop this further, on the efficacy cohort dataset.
-
-Things to ensure:
-
-- log likelihoods are calculated
-
-Note in this file I separated the plotting to another file - "Plotting COV002 CoP results"
-- will remove the setwds from all the extra chunks
-- and change model names
-- get rid of reading models?
--move kkin/pr models to separate file?
-- check if i want any of the plotting files
 
 # 1. Setup
 
