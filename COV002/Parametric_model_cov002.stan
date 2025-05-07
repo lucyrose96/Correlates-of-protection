@@ -1,17 +1,10 @@
-// Stan model for oint analysis of asymptomatic and symptomatic cases
-// in COVID-19 vaccine trial data
-//Nicholas Grassly 12 Jan 2022 - added CoP
-
-//version 2 directly estimates VEindirect
-//oxford model has weights and risk modelled as a function of variables
-
 data {
   int<lower=0> N;
   int<lower=0> C[N];
   int<lower=0> A[N];
   int <lower=0, upper=1> vaccinated[N];
   real Z[N];
-  real<lower=0> pers_yrs_at_risk[N]; //removed for now (for the simulations)//added back
+  real<lower=0> pers_yrs_at_risk[N]; 
   real min_Z;
   real max_Z;
 
@@ -33,13 +26,11 @@ parameters {
   real alpha5;
   real alpha6;
   real gam;
- // real <lower=-1, upper=1> VE_direct_in;
-  //real <lower=0, upper=1> VE_direct_pr; //assuming >0
   real <lower=0, upper=1> p_direct_in;
   real <lower=0, upper=1> p_direct_pr;
   real <lower=min_Z, upper=max_Z> n_50_in;
   real <lower=min_Z, upper=max_Z> n_50_pr;
-  real <lower=0, upper =4> log_kk_in; //allow <0 so credible intervals can go below 0. Unlikely the relationship will be negative so only need to go down to -1.
+  real <lower=0, upper =4> log_kk_in; 
   real <lower=0, upper =4> log_kk_pr;
   real <lower=0, upper=1> scale_in;
   real <lower=0, upper=1> scale_pr;
@@ -63,7 +54,7 @@ transformed parameters {
   for (i in 1:N){
     s[i]=inv_logit(gam);
     lam[i]=exp(alpha_ref + alpha1*cov1[i] + alpha2*cov2[i] + alpha3*cov3[i] + alpha4*cov4[i] + alpha5*cov5[i] + alpha6*cov6[i] )*pers_yrs_at_risk[i];
-    VE_indirect_in[i]=vaccinated[i]*((1-p_direct_in)*scale_in)*(inv_logit(kk_in*(Z[i]-n_50_in))); //from this you can calculate the average indirect VE 
+    VE_indirect_in[i]=vaccinated[i]*((1-p_direct_in)*scale_in)*(inv_logit(kk_in*(Z[i]-n_50_in))); 
     VE_indirect_pr[i]=vaccinated[i]*((1-p_direct_pr)*scale_pr)*(inv_logit(kk_pr*(Z[i]-n_50_pr)));
    
     VE_in[i]=vaccinated[i]*(p_direct_in*scale_in + VE_indirect_in[i]);
@@ -81,10 +72,6 @@ transformed parameters {
 }
 
 model {
-  //priors
- // target += normal_lpdf(kk | 0, 20);
-  //target += exponential_lpdf(kk_in | 2);
- // target += exponential_lpdf(kk_pr | 2);
   
   //likelihood
   for(i in 1:N){ 
