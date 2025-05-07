@@ -1,0 +1,678 @@
+---
+title: "Savage-Dickey method"
+output: html_document
+author: "Lucy Williams"
+---
+
+
+*Summary*
+This file provides the code for running the Savage-Dickey density ratio for the parametric models on COV002 data.
+
+*notes*
+run the models and library required packages
+
+note - caveat paper is good ref for SD
+
+Just took the BF_delta_null for each model and VE
+
+```{r}
+library("tidyverse")
+library("polspline")
+```
+
+
+
+# 1. Neuts
+
+```{r load neut models}
+fit_neut_para<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_neut_para_cov002.rds")
+fit_neut_para_kkin0<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_neut_para_cov002_kkin0.rds")
+fit_neut_para_kkpr0<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_neut_para_cov002_kkpr0.rds")
+fit_neut_para_kk0<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_neut_para_cov002_kk0.rds")
+```
+
+
+```{r extract parameters neuts}
+#mod1 = both kkin and kkpr
+#mod2 = kkin
+#mod3 = kkpr
+est_params_mod1<-data.frame(rstan::extract(fit_neut_para, pars=c("kk_in", "kk_pr")))
+est_params_mod2<-data.frame(rstan::extract(fit_neut_para_kkpr0, pars=c("kk_in")))
+est_params_mod3<-data.frame(rstan::extract(fit_neut_para_kkin0, pars=c("kk_pr")))
+
+```
+
+
+## KKin and KKpr model 
+
+```{r prior calculation}
+prior_logkk<-dunif(seq(0, 4, 0.1), 0, 4)
+prior_kk<-prior_logkk
+
+
+k_min=0
+k_max=exp(4)-1
+k_range=seq(k_min, k_max, 0.1)
+k_density=1/(4*(k_range+1))
+k_dat<-data.frame(k_range, k_density)
+
+prior_kkin0<-k_dat$k_density[which(k_dat$k_range==0)]
+prior_kkpr0<-k_dat$k_density[which(k_dat$k_range==0)]
+```
+
+```{r posterior estimation}
+# extract the samples for the kk_in parameter from the earlier Stan fit using the density function
+
+kk_in_dens<-density(est_params_mod1$kk_in, from = 0, to=k_max)
+kk_in_dens_dat<-data.frame(x=kk_in_dens$x, y=kk_in_dens$y)
+posterior_kkin0=kk_in_dens_dat$y[which(kk_in_dens_dat$x==0)]
+
+
+kk_pr_dens<-density(est_params_mod1$kk_pr, from = 0, to=k_max)
+kk_pr_dens_dat<-data.frame(x=kk_pr_dens$x, y=kk_pr_dens$y)
+posterior_kkpr0=kk_pr_dens_dat$y[which(kk_pr_dens_dat$x==0)]
+
+```
+
+
+```{r BF}
+# compute BF via Savage-Dickey (null vs alternative)
+BF_delta_null_in = posterior_kkin0/prior_kkin0
+BF_delta_null_in
+
+BF_delta_null_pr = posterior_kkpr0/prior_kkpr0
+BF_delta_null_pr
+
+# compute BF via Savage-Dickey (alternative vs null)
+
+BF_delta_null_in = prior_kkin0 / posterior_kkin0
+BF_delta_null_in
+
+BF_delta_null_pr = prior_kkpr0 / posterior_kkpr0
+BF_delta_null_pr
+```
+
+```{r ggplots}
+ggplot(kk_pr_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_pr", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_pr_dens_dat$y[1]), colour="red", shape=4)
+
+
+ggplot(kk_in_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_in", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_in_dens_dat$y[1]), colour="red", shape=4)
+
+
+```
+
+## KKin model
+
+```{r prior calculation}
+prior_logkk<-dunif(seq(0, 4, 0.1), 0, 4)
+prior_kk<-prior_logkk
+
+
+k_min=0
+k_max=exp(4)-1
+k_range=seq(k_min, k_max, 0.1)
+k_density=1/(4*(k_range+1))
+k_dat<-data.frame(k_range, k_density)
+
+prior_kkin0<-k_dat$k_density[which(k_dat$k_range==0)]
+prior_kkpr0<-k_dat$k_density[which(k_dat$k_range==0)]
+```
+
+
+```{r posterior estimation}
+# extract the samples for the kk_in parameter from the earlier Stan fit using the density function
+
+kk_in_dens<-density(est_params_mod2$kk_in, from = 0, to=k_max)
+kk_in_dens_dat<-data.frame(x=kk_in_dens$x, y=kk_in_dens$y)
+
+posterior_kkin0=kk_in_dens_dat$y[which(kk_in_dens_dat$x==0)]
+```
+
+
+```{r BF}
+# compute BF via Savage-Dickey (null vs alternative)
+BF_delta_null_in = posterior_kkin0/prior_kkin0
+BF_delta_null_in
+
+
+# compute BF via Savage-Dickey (alternative vs null)
+
+BF_delta_null_in = prior_kkin0 / posterior_kkin0
+BF_delta_null_in
+
+```
+
+```{r ggplots}
+ggplot(kk_in_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_in", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_in_dens_dat$y[1]), colour="red", shape=4)
+```
+
+
+```{r histograms}
+#would be nice to put this on the density plot too
+ggplot(est_params_mod1, aes(x=kk_in))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+
+ggplot(est_params_mod1, aes(x=kk_pr))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+```
+
+
+
+
+## KKpr model
+
+```{r prior calculation}
+prior_logkk<-dunif(seq(0, 4, 0.1), 0, 4)
+prior_kk<-prior_logkk
+
+
+k_min=0
+k_max=exp(4)-1
+k_range=seq(k_min, k_max, 0.1)
+k_density=1/(4*(k_range+1))
+k_dat<-data.frame(k_range, k_density)
+
+prior_kkin0<-k_dat$k_density[which(k_dat$k_range==0)]
+prior_kkpr0<-k_dat$k_density[which(k_dat$k_range==0)]
+```
+
+
+```{r posterior estimation}
+# extract the samples for the kk_in parameter from the earlier Stan fit using the density function
+
+kk_pr_dens<-density(est_params_mod3$kk_pr, from = 0, to=k_max)
+kk_pr_dens_dat<-data.frame(x=kk_pr_dens$x, y=kk_pr_dens$y)
+
+posterior_kkpr0=kk_pr_dens_dat$y[which(kk_pr_dens_dat$x==0)]
+```
+
+
+```{r BF}
+# compute BF via Savage-Dickey (null vs alternative)
+BF_delta_null_pr = posterior_kkpr0/prior_kkpr0
+BF_delta_null_pr
+
+
+# compute BF via Savage-Dickey (alternative vs null)
+
+BF_delta_null_pr = prior_kkpr0 / posterior_kkpr0
+BF_delta_null_pr
+
+```
+
+```{r ggplots}
+ggplot(kk_pr_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_pr", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_pr_dens_dat$y[1]), colour="red", shape=4)
+```
+
+
+
+
+# 2. Spike
+
+```{r load spike models}
+fit_spike_para<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_spike_para_cov002.rds")
+fit_spike_para_kkin0<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_spike_para_cov002_kkin0.rds")
+fit_spike_para_kkpr0<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_spike_para_cov002_kkpr0.rds")
+fit_spike_para_kk0<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_spike_para_cov002_kk0.rds")
+```
+
+
+```{r extract parameters spike}
+#mod1 = both kkin and kkpr
+#mod2 = kkin
+#mod3 = kkpr
+est_params_mod1<-data.frame(rstan::extract(fit_spike_para, pars=c("kk_in", "kk_pr")))
+est_params_mod2<-data.frame(rstan::extract(fit_spike_para_kkpr0, pars=c("kk_in")))
+est_params_mod3<-data.frame(rstan::extract(fit_spike_para_kkin0, pars=c("kk_pr")))
+
+```
+
+## KKin and KKpr model 
+
+```{r prior calculation}
+prior_logkk<-dunif(seq(0, 4, 0.1), 0, 4)
+prior_kk<-prior_logkk
+
+
+k_min=0
+k_max=exp(4)-1
+k_range=seq(k_min, k_max, 0.1)
+k_density=1/(4*(k_range+1))
+k_dat<-data.frame(k_range, k_density)
+
+prior_kkin0<-k_dat$k_density[which(k_dat$k_range==0)]
+prior_kkpr0<-k_dat$k_density[which(k_dat$k_range==0)]
+```
+
+```{r posterior estimation}
+# extract the samples for the kk_in parameter from the earlier Stan fit using the density function
+
+kk_in_dens<-density(est_params_mod1$kk_in, from = 0, to=k_max)
+kk_in_dens_dat<-data.frame(x=kk_in_dens$x, y=kk_in_dens$y)
+posterior_kkin0=kk_in_dens_dat$y[which(kk_in_dens_dat$x==0)]
+
+
+kk_pr_dens<-density(est_params_mod1$kk_pr, from = 0, to=k_max)
+kk_pr_dens_dat<-data.frame(x=kk_pr_dens$x, y=kk_pr_dens$y)
+posterior_kkpr0=kk_pr_dens_dat$y[which(kk_pr_dens_dat$x==0)]
+
+```
+
+
+```{r BF}
+# compute BF via Savage-Dickey (null vs alternative)
+BF_delta_null_in = posterior_kkin0/prior_kkin0
+BF_delta_null_in
+
+BF_delta_null_pr = posterior_kkpr0/prior_kkpr0
+BF_delta_null_pr
+
+# compute BF via Savage-Dickey (alternative vs null)
+
+BF_delta_null_in = prior_kkin0 / posterior_kkin0
+BF_delta_null_in
+
+BF_delta_null_pr = prior_kkpr0 / posterior_kkpr0
+BF_delta_null_pr
+```
+
+```{r ggplots}
+ggplot(kk_pr_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_pr", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_pr_dens_dat$y[1]), colour="red", shape=4)
+
+
+ggplot(kk_in_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_in", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_in_dens_dat$y[1]), colour="red", shape=4)
+
+
+```
+
+## KKin model
+
+```{r prior calculation}
+prior_logkk<-dunif(seq(0, 4, 0.1), 0, 4)
+prior_kk<-prior_logkk
+
+
+k_min=0
+k_max=exp(4)-1
+k_range=seq(k_min, k_max, 0.1)
+k_density=1/(4*(k_range+1))
+k_dat<-data.frame(k_range, k_density)
+
+prior_kkin0<-k_dat$k_density[which(k_dat$k_range==0)]
+prior_kkpr0<-k_dat$k_density[which(k_dat$k_range==0)]
+```
+
+
+```{r posterior estimation}
+# extract the samples for the kk_in parameter from the earlier Stan fit using the density function
+
+kk_in_dens<-density(est_params_mod2$kk_in, from = 0, to=k_max)
+kk_in_dens_dat<-data.frame(x=kk_in_dens$x, y=kk_in_dens$y)
+
+posterior_kkin0=kk_in_dens_dat$y[which(kk_in_dens_dat$x==0)]
+```
+
+
+```{r BF}
+# compute BF via Savage-Dickey (null vs alternative)
+BF_delta_null_in = posterior_kkin0/prior_kkin0
+BF_delta_null_in
+
+
+# compute BF via Savage-Dickey (alternative vs null)
+
+BF_delta_null_in = prior_kkin0 / posterior_kkin0
+BF_delta_null_in
+
+```
+
+```{r ggplots}
+ggplot(kk_in_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_in", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_in_dens_dat$y[1]), colour="red", shape=4)
+```
+
+
+```{r histograms}
+#would be nice to put this on the density plot too
+ggplot(est_params_mod1, aes(x=kk_in))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+
+ggplot(est_params_mod1, aes(x=kk_pr))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+```
+
+
+
+
+## KKpr model
+
+```{r prior calculation}
+prior_logkk<-dunif(seq(0, 4, 0.1), 0, 4)
+prior_kk<-prior_logkk
+
+
+k_min=0
+k_max=exp(4)-1
+k_range=seq(k_min, k_max, 0.1)
+k_density=1/(4*(k_range+1))
+k_dat<-data.frame(k_range, k_density)
+
+prior_kkin0<-k_dat$k_density[which(k_dat$k_range==0)]
+prior_kkpr0<-k_dat$k_density[which(k_dat$k_range==0)]
+```
+
+
+```{r posterior estimation}
+# extract the samples for the kk_in parameter from the earlier Stan fit using the density function
+
+kk_pr_dens<-density(est_params_mod3$kk_pr, from = 0, to=k_max)
+kk_pr_dens_dat<-data.frame(x=kk_pr_dens$x, y=kk_pr_dens$y)
+
+posterior_kkpr0=kk_pr_dens_dat$y[which(kk_pr_dens_dat$x==0)]
+```
+
+
+```{r BF}
+# compute BF via Savage-Dickey (null vs alternative)
+BF_delta_null_pr = posterior_kkpr0/prior_kkpr0
+BF_delta_null_pr
+
+
+# compute BF via Savage-Dickey (alternative vs null)
+
+BF_delta_null_pr = prior_kkpr0 / posterior_kkpr0
+BF_delta_null_pr
+
+```
+
+```{r ggplots}
+ggplot(kk_pr_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_pr", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_pr_dens_dat$y[1]), colour="red", shape=4)
+```
+
+
+
+
+
+# 3. RBD
+
+```{r load RBD models}
+fit_RBD_para<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_para_cov002.rds")
+fit_RBD_para_kkin0<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_para_cov002_kkin0.rds")
+fit_RBD_para_kkpr0<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_para_cov002_kkpr0.rds")
+fit_RBD_para_kk0<-readRDS("C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_para_cov002_kk0.rds")
+```
+
+
+```{r extract parameters RBD}
+#mod1 = both kkin and kkpr
+#mod2 = kkin
+#mod3 = kkpr
+est_params_mod1<-data.frame(rstan::extract(fit_RBD_para, pars=c("kk_in", "kk_pr")))
+est_params_mod2<-data.frame(rstan::extract(fit_RBD_para_kkpr0, pars=c("kk_in")))
+est_params_mod3<-data.frame(rstan::extract(fit_RBD_para_kkin0, pars=c("kk_pr")))
+
+```
+
+## KKin and KKpr model 
+
+```{r prior calculation}
+prior_logkk<-dunif(seq(0, 4, 0.1), 0, 4)
+prior_kk<-prior_logkk
+
+
+k_min=0
+k_max=exp(4)-1
+k_range=seq(k_min, k_max, 0.1)
+k_density=1/(4*(k_range+1))
+k_dat<-data.frame(k_range, k_density)
+
+prior_kkin0<-k_dat$k_density[which(k_dat$k_range==0)]
+prior_kkpr0<-k_dat$k_density[which(k_dat$k_range==0)]
+```
+
+```{r posterior estimation}
+# extract the samples for the kk_in parameter from the earlier Stan fit using the density function
+
+kk_in_dens<-density(est_params_mod1$kk_in, from = 0, to=k_max)
+kk_in_dens_dat<-data.frame(x=kk_in_dens$x, y=kk_in_dens$y)
+posterior_kkin0=kk_in_dens_dat$y[which(kk_in_dens_dat$x==0)]
+
+
+kk_pr_dens<-density(est_params_mod1$kk_pr, from = 0, to=k_max)
+kk_pr_dens_dat<-data.frame(x=kk_pr_dens$x, y=kk_pr_dens$y)
+posterior_kkpr0=kk_pr_dens_dat$y[which(kk_pr_dens_dat$x==0)]
+
+```
+
+
+```{r BF}
+# compute BF via Savage-Dickey (null vs alternative)
+BF_delta_null_in = posterior_kkin0/prior_kkin0
+BF_delta_null_in
+
+BF_delta_null_pr = posterior_kkpr0/prior_kkpr0
+BF_delta_null_pr
+
+# compute BF via Savage-Dickey (alternative vs null)
+
+BF_delta_null_in = prior_kkin0 / posterior_kkin0
+BF_delta_null_in
+
+BF_delta_null_pr = prior_kkpr0 / posterior_kkpr0
+BF_delta_null_pr
+```
+
+```{r ggplots}
+ggplot(kk_pr_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_pr", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_pr_dens_dat$y[1]), colour="red", shape=4)
+
+
+ggplot(kk_in_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_in", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_in_dens_dat$y[1]), colour="red", shape=4)
+
+
+```
+
+## KKin model
+
+```{r prior calculation}
+prior_logkk<-dunif(seq(0, 4, 0.1), 0, 4)
+prior_kk<-prior_logkk
+
+
+k_min=0
+k_max=exp(4)-1
+k_range=seq(k_min, k_max, 0.1)
+k_density=1/(4*(k_range+1))
+k_dat<-data.frame(k_range, k_density)
+
+prior_kkin0<-k_dat$k_density[which(k_dat$k_range==0)]
+prior_kkpr0<-k_dat$k_density[which(k_dat$k_range==0)]
+```
+
+
+```{r posterior estimation}
+# extract the samples for the kk_in parameter from the earlier Stan fit using the density function
+
+kk_in_dens<-density(est_params_mod2$kk_in, from = 0, to=k_max)
+kk_in_dens_dat<-data.frame(x=kk_in_dens$x, y=kk_in_dens$y)
+
+posterior_kkin0=kk_in_dens_dat$y[which(kk_in_dens_dat$x==0)]
+```
+
+
+```{r BF}
+# compute BF via Savage-Dickey (null vs alternative)
+BF_delta_null_in = posterior_kkin0/prior_kkin0
+BF_delta_null_in
+
+
+# compute BF via Savage-Dickey (alternative vs null)
+
+BF_delta_null_in = prior_kkin0 / posterior_kkin0
+BF_delta_null_in
+
+```
+
+```{r ggplots}
+ggplot(kk_in_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_in", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_in_dens_dat$y[1]), colour="red", shape=4)
+```
+
+
+```{r histograms}
+#would be nice to put this on the density plot too
+ggplot(est_params_mod1, aes(x=kk_in))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+
+ggplot(est_params_mod1, aes(x=kk_pr))+
+  geom_histogram(binwidth = 0.2, color = "black", fill="grey60")+
+  theme_bw()+coord_cartesian()
+```
+
+
+
+
+## KKpr model
+
+```{r prior calculation}
+prior_logkk<-dunif(seq(0, 4, 0.1), 0, 4)
+prior_kk<-prior_logkk
+
+
+k_min=0
+k_max=exp(4)-1
+k_range=seq(k_min, k_max, 0.1)
+k_density=1/(4*(k_range+1))
+k_dat<-data.frame(k_range, k_density)
+
+prior_kkin0<-k_dat$k_density[which(k_dat$k_range==0)]
+prior_kkpr0<-k_dat$k_density[which(k_dat$k_range==0)]
+```
+
+
+```{r posterior estimation}
+# extract the samples for the kk_in parameter from the earlier Stan fit using the density function
+
+kk_pr_dens<-density(est_params_mod3$kk_pr, from = 0, to=k_max)
+kk_pr_dens_dat<-data.frame(x=kk_pr_dens$x, y=kk_pr_dens$y)
+
+posterior_kkpr0=kk_pr_dens_dat$y[which(kk_pr_dens_dat$x==0)]
+```
+
+
+```{r BF}
+# compute BF via Savage-Dickey (null vs alternative)
+BF_delta_null_pr = posterior_kkpr0/prior_kkpr0
+BF_delta_null_pr
+
+
+# compute BF via Savage-Dickey (alternative vs null)
+
+BF_delta_null_pr = prior_kkpr0 / posterior_kkpr0
+BF_delta_null_pr
+
+```
+
+```{r ggplots}
+ggplot(kk_pr_dens_dat, aes(x=x, y=y))+
+  geom_line(color="red")+
+  geom_line(data=as.data.frame(k_dat), aes(x=k_range, y=k_density))+
+  theme_bw()+
+  labs(x="Kk_pr", y="Density")+
+  scale_x_continuous(breaks=seq(0,60,10))+
+  geom_vline(xintercept = 0, linetype="longdash", color="darkgrey")+
+  geom_point(aes(x=0,y=k_dat$k_density[1]), colour="black", shape=4)+
+  geom_point(aes(x=0,y=kk_pr_dens_dat$y[1]), colour="red", shape=4)
+```
+
+
