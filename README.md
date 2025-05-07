@@ -4,7 +4,7 @@ The R scripts for the analysis of the University of Oxford/AstraZeneca sponsored
 - Inverse probability weighting - shows how to generate inverse probability weights for adjusting for sampling bias
 - COV002 CoP analysis parametric/non-parametric - shows how the models were run
 - (Non)-Parametric_model_cov002 - model code
-- Plotting COV002 CoP results shows how the model results figures for the manuscript were generated
+- Plotting COV002 CoP results - shows how the model results figures for the manuscript were generated
 - Savage-Dickey method - shows how this method was used to evaluate the parametric model
 
 The R scripts for the simulation analysis are provided in the Simulation folder, numbered in the order to run.
