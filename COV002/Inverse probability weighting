@@ -1,0 +1,282 @@
+---
+title: "Inverse probability weighting"
+output: html_document
+author: "Lucy Williams"
+---
+
+*Summary*
+In this file, the weights for inverse probability weighting are generated. We use the same variables as used in Feng, 2021, plus trial arm, in a logistic regression model for the probability of an antibody sample being taken. 
+One model is run for the neutralising Ab measure, and one for both the spike and RBD binding Ab measure, because the latter two had the same missing data.
+
+# 1. Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ResourceSelection)
+insertRow <- function(existingDF, newrow, r) {
+  existingDF[seq(r+1,nrow(existingDF)+1),] <- existingDF[seq(r,nrow(existingDF)),]
+  existingDF[r,] <- newrow
+  existingDF
+}
+```
+
+
+
+```{r reference categories and new variable}
+#references
+model_data$age_cat_cor<-as.factor(model_data$age_cat_cor)
+model_data$age_cat_cor<-relevel(model_data$age_cat_cor, ref="18–55")
+
+model_data$outcome<-as.factor(model_data$outcome)
+model_data$outcome<-relevel(model_data$outcome, ref="None")
+
+model_data$endpoint.dose<-as.factor(model_data$endpoint.dose)
+model_data$endpoint.dose<-relevel(model_data$endpoint.dose, ref="SD/SD")
+
+model_data$interval.prime.cutoff<-as.factor(model_data$interval.prime.cutoff)
+model_data$interval.prime.cutoff<-relevel(model_data$interval.prime.cutoff, ref="<6 weeks")
+
+model_data$Occupation3<-as.factor(model_data$Occupation3)
+model_data$Occupation3<-relevel(model_data$Occupation3, ref="non-essential")
+
+model_data$healthcare_covid<-as.factor(model_data$healthcare_covid)
+model_data$healthcare_covid<-relevel(model_data$healthcare_covid, ref="not_hcw")
+
+#new variable
+model_data$endpoint.dose.sdld<-as.character(model_data$endpoint.dose)
+model_data$endpoint.dose.sdld[which(model_data$endpoint.dose == "LD/LD")]<-"LD/LD or LD/SD"
+model_data$endpoint.dose.sdld[which(model_data$endpoint.dose == "LD/SD")]<-"LD/LD or LD/SD"
+model_data$endpoint.dose.sdld<-factor(model_data$endpoint.dose.sdld, levels = c("SD/SD", "LD/LD or LD/SD"))
+table(model_data$endpoint.dose.sdld, useNA = "ifany")
+table(model_data$endpoint.dose.sdld, model_data$igg.s_yn)
+```
+
+#2. Run models
+
+Inverse probability weighting. Immune marker data were not available for everyone in the correlates population, and cases are over-represented in the immune marker datasets as these were preferentially processed over noncases. Unadjusted estimates of absolute risk of infection will therefore be inflated and result in bias to correlates estimates. We used a logistic regression model to predict the probability that a participant will have immune marker data available to the analysis. The outcome variables were each immune marker, and predictors were:
+
+- age group (18–55 years, 56–69 years, 70 years or above)
+- whether the participant is a case or noncase, the type of case (primary symptomatic, non-primary symptomatic, asymptomatic - now removed non-primary but this could change)
+- prime-boost interval (<6 weeks/ 6-8 weeks/ 9-11 weeks/ >=12 weeks)
+- dosage (LD/LD, LD/SD, SD/SD).
+
+An additional predictor used in this model but was not used in the Feng model because they focus on the vaccine arm only, is trial arm.
+
+The inverse probability from this model was used to weight the correlates of risk models for each immune marker to remove this source of bias (Supplementary Table 3).
+
+
+```{r model - oxford}
+#Neuts
+mod_neut<-glm(neut_yn ~ age_cat_cor + outcome + interval.prime.cutoff + endpoint.dose + vaccinated + vaccinated*outcome, data=model_data, family = "binomial")
+summary(mod_neut)
+log_odds<-mod_neut$coef
+odds<-exp(mod_neut$coef)
+std_errors<-summary(mod_neut)$coefficients[,2]
+p_vals<-summary(mod_neut)$coefficients[,4]
+uppers<-odds+1.96*std_errors
+lowers<-odds-1.96*std_errors
+(neut_modsumdat<-round(data.frame(odds, lowers, uppers, p_vals), digits=3))
+#write.csv(neut_modsumdat, "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/neut_modsumdat.csv")
+
+#Spike
+
+#note there are no LD/LD participants with spike/rbd antibody measurements. Therefore in these models I use an endpoint.dose variable that combines LD/LD and LD/SD
+mod_S<-glm(igg.s_yn ~ age_cat_cor + outcome + interval.prime.cutoff + endpoint.dose.sdld + vaccinated + vaccinated*outcome, data=model_data, family = "binomial")
+summary(mod_S)
+log_odds<-mod_S$coef
+odds<-exp(mod_S$coef)
+std_errors<-summary(mod_S)$coefficients[,2]
+p_vals<-summary(mod_S)$coefficients[,4]
+uppers<-odds+1.96*std_errors
+lowers<-odds-1.96*std_errors
+(spike_modsumdat<-round(data.frame(odds, lowers, uppers, p_vals), digits=3))
+#write.csv(spike_modsumdat, "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/spike_modsumdat.csv")
+
+#RBD
+mod_RBD<-glm(igg.RBD_yn ~ age_cat_cor + outcome + interval.prime.cutoff + endpoint.dose.sdld + vaccinated + vaccinated*outcome, data=model_data, family = "binomial")
+summary(mod_RBD)
+log_odds<-mod_RBD$coef
+odds<-exp(mod_RBD$coef)
+std_errors<-summary(mod_RBD)$coefficients[,2]
+p_vals<-summary(mod_RBD)$coefficients[,4]
+uppers<-odds+1.96*std_errors
+lowers<-odds-1.96*std_errors
+round(data.frame(log_odds, odds, lowers, uppers, p_vals), digits=3)
+#spike and rbd are the same so use spike for rbd
+```
+
+
+
+#3. Generate weights
+```{r neut weights - oxford}
+model_data$fitted_value<-mod_neut$fitted.values
+model_data$neut_weight<- 1/(mod_neut$fitted.values)
+ggplot(model_data, aes(x=neut_weight))+
+        geom_histogram()+
+        labs(x="Weight (neutralising antibodies)", y="Count")+
+        theme_bw()+
+  coord_cartesian(xlim = c(0,25), ylim=c(0,1500))
+summary(model_data$neut_weight)
+quantile(model_data$neut_weight, 0.025)
+quantile(model_data$neut_weight, 0.975)
+```
+
+```{r Spike weights - oxford}
+#spike and RBD are the same
+model_data$fitted_value<-mod_S$fitted.values
+model_data$spike_rbd_weight<- 1/(mod_S$fitted.values)
+ggplot(model_data, aes(x=spike_rbd_weight))+
+        geom_histogram()+
+        labs(x="Weight (Spike and RBD IgG antibodies)", y="Count")+
+        theme_bw()+
+  coord_cartesian(xlim = c(0,25), ylim=c(0,1500))
+summary(model_data$spike_rbd_weight)
+quantile(model_data$spike_rbd_weight, 0.025)
+quantile(model_data$spike_rbd_weight, 0.975)
+```
+
+#4. Test and visualise weights
+
+```{r hoslem.test}
+#run for mod_neut and mod_S
+hl<-hoslem.test(mod_neut$y, fitted(mod_neut))
+hl
+cbind(hl$observed,hl$expected)
+plot(mod_neut$y, fitted(mod_neut))
+```
+
+```{r weights ggplots}
+neut_cc_data<-model_data%>%
+  subset(!is.na(neuts.PB28_log))
+spike_cc_data<-model_data%>%
+  subset(!is.na(igg.S.PB28_log))
+
+ggplot(neut_cc_data, aes(x=as.factor(vaccinated), y=neut_weight))+
+        geom_boxplot()
+ggplot(spike_cc_data, aes(x=as.factor(vaccinated), y=spike_rbd_weight))+
+        geom_boxplot()
+
+```
+
+# 5. Forest plot models
+
+```{r create forest data}
+#run model for intended forest plot
+#mod_sum<-summary(mod_neut)
+mod_sum<-summary(mod_S)
+tab_mod<-round(mod_sum$coefficients, digits=3)
+cbind(exp(tab_mod[,1:2]), tab_mod[,4])
+
+forest_dat<-as.data.frame(tab_mod[,c(1,2,4)])
+forest_dat$OR<-exp(forest_dat$Estimate)
+forest_dat$uci<-exp(forest_dat$Estimate+(1.96*forest_dat$`Std. Error`))
+forest_dat$lci<-exp(forest_dat$Estimate-(1.96*forest_dat$`Std. Error`))
+forest_dat$covariates<-rownames(forest_dat)
+forest_dat$covariates <- as.character(forest_dat$covariates)
+forest_dat$covariates <- factor(forest_dat$covariates, levels=unique(forest_dat$covariates))
+```
+
+## a. neuts
+
+```{r add title rows neuts}
+new_row1<-c(rep(NA, 7))
+new_row2<-c(rep(NA, 7))
+new_row3<-c(rep(NA, 7))
+new_row4<-c(rep(NA, 7))
+new_row5<-c(rep(NA, 7))
+new_row6<-c(rep(NA, 7))
+
+
+forest_dat2<-insertRow(forest_dat, new_row1, 2)
+forest_dat2<-insertRow(forest_dat2, new_row2, 5)
+forest_dat2<-insertRow(forest_dat2, new_row3, 8)
+forest_dat2<-insertRow(forest_dat2, new_row4, 12)
+forest_dat2<-insertRow(forest_dat2, new_row5, 15)
+forest_dat2<-insertRow(forest_dat2, new_row6, 17)
+
+row.names(forest_dat2)<-seq(1:nrow(forest_dat2))
+forest_dat2$covariates<-as.character(forest_dat2$covariates)
+forest_dat2$covariates[2]<-"Age (vs <=55 years)"
+forest_dat2$covariates[5]<-"Outcome (vs no infection)"
+forest_dat2$covariates[8]<-"Prime interval (vs <6 weeks)"
+forest_dat2$covariates[12]<-"Dosing (vs SD/SD)"
+forest_dat2$covariates[15]<-"Trial arm (vs control)"
+forest_dat2$covariates[17]<-"Outcome x Trial arm (vs no infection, control arm)"
+
+forest_dat2
+forest_dat2$covariates <- as.character(forest_dat2$covariates)
+forest_dat2$covariates <- factor(forest_dat2$covariates, levels=unique(forest_dat2$covariates))
+forest_dat2$colour <- c(rep(c("white", "gray95"), 9),
+                        "white")
+
+```
+
+```{r grouped plot neuts}
+ggplot(forest_dat2[-1,], aes(x = as.numeric(OR), y = covariates, xmin = as.numeric(lci), xmax = as.numeric(uci)))+
+ # geom_hline(aes(yintercept = covariates, colour = colour), size = 7) + 
+  geom_pointrange(shape=22, fill="black")+
+  geom_vline(xintercept = 1, linetype=3)+
+  xlab("Odds ratio with 95% Confidence Interval")+ylab("Variable")+
+  theme_classic()+
+  scale_y_discrete( #limits = rev(#forest_dat$covariates[-1])
+                   #,
+                   breaks=c("Age (vs <=55 years)", "age_cat_cor56–69", "age_cat_cor70+", "Outcome (vs no infection)", "outcomeA", "outcomeC", "Prime interval (vs <6 weeks)", "interval.prime.cutoff6-8 weeks", "interval.prime.cutoff9-11 weeks", "interval.prime.cutoff>=12 weeks", "Dosing (vs SD/SD)", "endpoint.doseLD/LD", "endpoint.doseLD/SD", "Trial arm (vs control)", "vaccinated", "Outcome x Trial arm (vs no infection, control arm)", "outcomeA:vaccinated", "outcomeC:vaccinated" ),
+                   limits=rev(c("Age (vs <=55 years)", "age_cat_cor56–69", "age_cat_cor70+","Outcome (vs no infection)", "outcomeA", "outcomeC", "Prime interval (vs <6 weeks)", "interval.prime.cutoff6-8 weeks", "interval.prime.cutoff9-11 weeks", "interval.prime.cutoff>=12 weeks", "Dosing (vs SD/SD)", "endpoint.doseLD/LD", "endpoint.doseLD/SD", "Trial arm (vs control)", "vaccinated", "Outcome x Trial arm (vs no infection, control arm)", "outcomeA:vaccinated", "outcomeC:vaccinated" )),
+                   labels=c("Age (vs <=55 years)", "56 to 69 years", "70+ years", "Outcome (vs no infection)", "Asymptomatic infection", "Symptomatic infection", "Prime interval (vs <6 weeks)",  ">6-8 weeks", ">9-11 weeks", ">=12 weeks", "Dosing (vs SD/SD)", "LD/LD", "LD/SD", "Trial arm (vs control)", "Vaccine arm", "Outcome x Trial arm (vs no infection, control arm)", "Asymptomatic infection:Vaccine arm", "Symptomatic infection:Vaccine arm")
+                   )+
+  scale_x_log10(limits = c(0.125, 256), breaks = c(0.125, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256), labels=c("0.125", "0.25", "0.5", "1", "2", "4", "8", "16", "32", "64", "128", "256"), expand = c(0,0))+
+  theme(axis.title.y=element_blank(), aspect.ratio = 1, text = element_text(size = 14))
+```
+
+## b. spike/RBD
+
+```{r add title rows spike}
+new_row1<-c(rep(NA, 7))
+new_row2<-c(rep(NA, 7))
+new_row3<-c(rep(NA, 7))
+new_row4<-c(rep(NA, 7))
+new_row5<-c(rep(NA, 7))
+new_row6<-c(rep(NA, 7))
+
+
+forest_dat2<-insertRow(forest_dat, new_row1, 2)
+forest_dat2<-insertRow(forest_dat2, new_row2, 5)
+forest_dat2<-insertRow(forest_dat2, new_row3, 8)
+forest_dat2<-insertRow(forest_dat2, new_row4, 12)
+forest_dat2<-insertRow(forest_dat2, new_row5, 14)
+forest_dat2<-insertRow(forest_dat2, new_row6, 16)
+
+row.names(forest_dat2)<-seq(1:nrow(forest_dat2))
+forest_dat2$covariates<-as.character(forest_dat2$covariates)
+forest_dat2$covariates[2]<-"Age (vs <=55 years)"
+forest_dat2$covariates[5]<-"Outcome (vs no infection)"
+forest_dat2$covariates[8]<-"Prime interval (vs <6 weeks)"
+forest_dat2$covariates[12]<-"Dosing (vs SD/SD)"
+forest_dat2$covariates[14]<-"Trial arm (vs control)"
+forest_dat2$covariates[16]<-"Outcome x Trial arm (vs no infection, control arm)"
+
+
+forest_dat2
+forest_dat2$covariates <- as.character(forest_dat2$covariates)
+forest_dat2$covariates <- factor(forest_dat2$covariates, levels=unique(forest_dat2$covariates))
+
+```
+
+
+```{r grouped plot spike}
+ggplot(forest_dat2[-1,], aes(x = as.numeric(OR), y = covariates, xmin = as.numeric(lci), xmax = as.numeric(uci)))+
+ # geom_hline(aes(yintercept = covariates, colour = colour), size = 7) + 
+  geom_pointrange(shape=22, fill="black")+
+  geom_vline(xintercept = 1, linetype=3)+
+  xlab("Odds ratio with 95% Confidence Interval")+ylab("Variable")+
+  theme_classic()+
+  scale_y_discrete( #limits = rev(#forest_dat$covariates[-1])
+                   #,
+                   breaks=c("Age (vs <=55 years)", "age_cat_cor56–69", "age_cat_cor70+", "Outcome (vs no infection)", "outcomeA", "outcomeC", "Prime interval (vs <6 weeks)", "interval.prime.cutoff6-8 weeks", "interval.prime.cutoff9-11 weeks", "interval.prime.cutoff>=12 weeks", "Dosing (vs SD/SD)", "endpoint.dose.sdldLD/LD or LD/SD",  "Trial arm (vs control)", "vaccinated", "Outcome x Trial arm (vs no infection, control arm)", "outcomeA:vaccinated", "outcomeC:vaccinated" ),
+                   limits=rev(c("Age (vs <=55 years)", "age_cat_cor56–69", "age_cat_cor70+","Outcome (vs no infection)", "outcomeA", "outcomeC", "Prime interval (vs <6 weeks)", "interval.prime.cutoff6-8 weeks", "interval.prime.cutoff9-11 weeks", "interval.prime.cutoff>=12 weeks", "Dosing (vs SD/SD)", "endpoint.dose.sdldLD/LD or LD/SD", "Trial arm (vs control)", "vaccinated", "Outcome x Trial arm (vs no infection, control arm)", "outcomeA:vaccinated", "outcomeC:vaccinated" )),
+                   labels=c("Age (vs <=55 years)", "56 to 69 years", "70+ years", "Outcome (vs no infection)", "Asymptomatic infection", "Symptomatic infection", "Prime interval (vs <6 weeks)",  ">6-8 weeks", ">9-11 weeks", ">=12 weeks", "Dosing (vs SD/SD)", "LD/LD or LD/SD", "Trial arm (vs control)", "Vaccine arm", "Outcome x Trial arm (vs no infection, control arm)", "Asymptomatic infection:Vaccine arm", "Symptomatic infection:Vaccine arm")
+                   )+
+  scale_x_log10(limits = c(0.125, 256), breaks = c(0.125, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256), labels=c("0.125", "0.25", "0.5", "1", "2", "4", "8", "16", "32", "64", "128", "256"), expand = c(0,0))+
+  theme(axis.title.y=element_blank(), aspect.ratio = 1, text = element_text(size = 14))
+```
+
