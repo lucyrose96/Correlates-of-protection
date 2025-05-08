@@ -8,13 +8,6 @@ author: "Lucy Williams"
 *Summary*
 This file provides the code for running the Savage-Dickey density ratio for the parametric models on COV002 data.
 
-*notes*
-run the models and library required packages
-
-note - caveat paper is good ref for SD
-
-Just took the BF_delta_null for each model and VE
-
 ```{r}
 library("tidyverse")
 library("polspline")
