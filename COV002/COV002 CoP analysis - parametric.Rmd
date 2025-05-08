@@ -13,8 +13,7 @@ This file provides the code for running the parametric Rstan model for the COV00
 
 The baseline model for each was the one used to generate the main results in the manuscript. 
 
-
-We also ran models in which we set the slope parameter, k, to 0 for either VEin or VEpr. This was for the Savage-Dickey ratio calculation. The densities of the prior and posterior distributions at k = 0 were used to calculate the Savage-Dickey density ratio (see supplementary methods).
+We also ran models in which we set the slope parameter, k, to 0 for either VEin or VEpr. This was for the Savage-Dickey ratio calculation. The densities of the prior and posterior distributions at k = 0 were used to calculate the Savage-Dickey density ratio (see "Savage-Dickey method.Rmd" or supplementary methods).
 
 
 # 1. Setup
