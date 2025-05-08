@@ -129,6 +129,6 @@ cop_dat_plot$index<-index
 cop_dat_plot
 
 #6. Output results
-output_file=print(paste("median/results_nonpara.", index, ".csv", collapse = NULL, sep = ""))
+output_file=print(paste("results_nonpara.", index, ".csv", collapse = NULL, sep = ""))
 write.csv(cop_dat_plot, output_file, row.names = FALSE)
 
