@@ -21,7 +21,7 @@ model <- stan_model(file = 'Parametric_model.stan')
 ##Data
 args <- commandArgs(trailingOnly=TRUE)
 index=as.numeric(args[1])
-data_file<-print(paste("c_",index,".csv", collapse = NULL, sep =""))
+data_file<-print(paste("c_",index,".csv", collapse = NULL, sep =""))#loading one simulation dataset for each model run 
 c<-read.csv(data_file)
 
 ##Parameters to take from model
