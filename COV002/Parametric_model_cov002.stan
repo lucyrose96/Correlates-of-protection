@@ -124,6 +124,6 @@ generated quantities{
   log_lik[i] = (poisson_lpmf(C[i] | mu_c[i]) + poisson_lpmf(A[i] | mu_a[i]))*weight[i];
   }
 
-log_lik_sum = sum(log_lik);//added this - total log likelihood for each iteration
+log_lik_sum = sum(log_lik);
   
 }
