@@ -83,6 +83,12 @@ model {
 generated quantities{
   real VE_sym[N];
   real VE_asym[N];
+  real VE_sym_w[N];//new
+  real VE_asym_w[N];//new
+  real vaccinated_w[N];//new
+  real VE_indirect_in_w[N];//new
+  real VE_indirect_pr_w[N];//new
+
   real VE_sym_mean;
   real VE_asym_mean;
   real ps = inv_logit(gam);
@@ -104,6 +110,31 @@ generated quantities{
   real <lower=0, upper=1> VE_indirect_pr_max; 
   real <lower=0, upper=1> VE_indirect_in_mean;
   real <lower=0, upper=1> VE_indirect_pr_mean; 
+
+  real VE_sym_mean_w;//new
+  real VE_asym_mean_w;//new
+  real VE_indirect_in_mean_w;//new
+  real VE_indirect_pr_mean_w;//new
+  
+  real p_VE_indirect_in_mean;//new
+  real p_VE_indirect_pr_mean;//new
+  real p_VE_direct_in_mean;//new
+  real p_VE_direct_pr_mean;//new
+  
+  real p_VE_indirect_in_tot;//new
+  real p_VE_indirect_pr_tot;//new
+  real p_VE_direct_in_tot;//new
+  real p_VE_direct_pr_tot;//new
+  
+  real p_VE_indirect_in[N];//new
+  real p_VE_direct_in[N];//new
+  real p_VE_indirect_pr[N];//new
+  real p_VE_direct_pr[N];//new
+  
+  real p_VE_indirect_in_mean2;//new
+  real p_VE_indirect_pr_mean2;//new
+  real p_VE_direct_in_mean2;//new
+  real p_VE_direct_pr_mean2;//new
   
   VE_direct_in=scale_in*p_direct_in;
   VE_direct_pr=scale_pr*p_direct_pr;
@@ -113,11 +144,57 @@ generated quantities{
   for (i in 1:N){
   VE_sym[i]= 1-(1-VE_in[i])*(1-VE_pr[i]);
   VE_asym[i]= 1-((1-VE_in[i])-s[i]*(1-VE_in[i])*(1-VE_pr[i]))/(1-s[i]);
+  
+  VE_sym_w[i]= (1-(1-VE_in[i])*(1-VE_pr[i]))*weight[i];//new
+  VE_asym_w[i]= (1-((1-VE_in[i])-s[i]*(1-VE_in[i])*(1-VE_pr[i]))/(1-s[i]))*weight[i];//new
+  
+  vaccinated_w[i]=vaccinated[i]*weight[i];//new
+  
+  VE_indirect_in_w[i]=VE_indirect_in[i]*weight[i];//new
+  VE_indirect_pr_w[i]=VE_indirect_pr[i]*weight[i];//new
+  
+  if(vaccinated[i]==1){
+  p_VE_indirect_in[i]=VE_indirect_in[i]/VE_in[i];//new
+  p_VE_direct_in[i]=VE_direct_in/VE_in[i];//new
+  p_VE_indirect_pr[i]=VE_indirect_pr[i]/VE_pr[i];//new
+  p_VE_direct_pr[i]=VE_direct_pr/VE_pr[i];//new
+  }else if(vaccinated[i]==0){
+  p_VE_indirect_in[i]=0;//new
+  p_VE_direct_in[i]=0;//new
+  p_VE_indirect_pr[i]=0;//new
+  p_VE_direct_pr[i]=0;//new
   }
+  
+  }
+
   VE_sym_mean = sum(VE_sym)/sum(vaccinated);
   VE_asym_mean = sum(VE_asym)/sum(vaccinated);
   VE_indirect_in_mean = sum(VE_indirect_in)/sum(vaccinated);
   VE_indirect_pr_mean = sum(VE_indirect_pr)/sum(vaccinated);
+
+  VE_sym_mean_w = sum(VE_sym_w)/sum(vaccinated);//new
+  VE_asym_mean_w = sum(VE_asym_w)/sum(vaccinated);//new
+  VE_indirect_in_mean_w = sum(VE_indirect_in_w)/sum(vaccinated);//new
+  VE_indirect_pr_mean_w = sum(VE_indirect_pr_w)/sum(vaccinated);//new
+  
+  //calculating pdirect of mean
+  p_VE_indirect_in_mean=VE_indirect_in_mean/VE_in_mean;//new
+  p_VE_indirect_pr_mean=VE_indirect_pr_mean/VE_pr_mean;//new
+  p_VE_direct_in_mean=VE_direct_in/VE_in_mean;//new
+  p_VE_direct_pr_mean=VE_direct_pr/VE_pr_mean;//new
+  
+  //calculating mean of pdirect
+  p_VE_indirect_in_mean2=sum(p_VE_indirect_in)/sum(vaccinated);//new
+  p_VE_indirect_pr_mean2=sum(p_VE_indirect_pr)/sum(vaccinated);//new
+  p_VE_direct_in_mean2=sum(p_VE_direct_in)/sum(vaccinated);//new
+  p_VE_direct_pr_mean2=sum(p_VE_direct_pr)/sum(vaccinated);//new
+  //...and of total
+  p_VE_indirect_in_tot=VE_indirect_in_max/scale_in;//new
+  p_VE_indirect_pr_tot=VE_indirect_pr_max/scale_pr;//new
+  p_VE_direct_in_tot=VE_direct_in/scale_in;//new
+  p_VE_direct_pr_tot=VE_direct_pr/scale_pr;//new
+  
+  
   
   // LOO cross validation: define the log likelihood as a vector
   for (i in 1:N){
@@ -127,3 +204,4 @@ generated quantities{
 log_lik_sum = sum(log_lik);
   
 }
+
