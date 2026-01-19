@@ -15,6 +15,7 @@ The baseline model for each was the one used to generate the main results in the
 
 We also ran models in which we set the slope parameter, k, to 0 for either VEin or VEpr. This was for the Savage-Dickey ratio calculation. The densities of the prior and posterior distributions at k = 0 were used to calculate the Savage-Dickey density ratio (see "Savage-Dickey method.Rmd" or supplementary methods).
 
+Note average VE is calculated in multiple ways - see the "//new" calculations in the model code to see which were used for the results in the manuscript.
 
 # 1. Setup
 
@@ -106,8 +107,12 @@ log_lik <- extract_log_lik(fit_neut_para)
 loo <- loo(log_lik)
 print(loo)
 
-#View parameters
-pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+#Visualise parameters
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean",
+       "VE_sym_mean_w","VE_asym_mean_w","VE_indirect_in_mean_w", "VE_indirect_pr_mean_w",
+       "p_VE_indirect_in_mean", "p_VE_indirect_pr_mean", "p_VE_direct_in_mean", "p_VE_direct_pr_mean",
+       "p_VE_indirect_in_mean2", "p_VE_indirect_pr_mean2", "p_VE_direct_in_mean2", "p_VE_direct_pr_mean2",
+       "p_VE_indirect_in_tot", "p_VE_indirect_pr_tot", "p_VE_direct_in_tot", "p_VE_direct_pr_tot")
 print(fit_neut_para, pars=pars)
 traceplot(fit_neut_para, pars=pars, inc_warmup = TRUE)
 pairs(fit_neut_para, pars=pars)
@@ -328,7 +333,11 @@ loo <- loo(log_lik)
 print(loo)
 
 #visualise paramaters
-pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean",
+       "VE_sym_mean_w","VE_asym_mean_w","VE_indirect_in_mean_w", "VE_indirect_pr_mean_w",
+       "p_VE_indirect_in_mean", "p_VE_indirect_pr_mean", "p_VE_direct_in_mean", "p_VE_direct_pr_mean",
+       "p_VE_indirect_in_mean2", "p_VE_indirect_pr_mean2", "p_VE_direct_in_mean2", "p_VE_direct_pr_mean2",
+       "p_VE_indirect_in_tot", "p_VE_indirect_pr_tot", "p_VE_direct_in_tot", "p_VE_direct_pr_tot")
 print(fit_neut_para_kkin0, pars=pars)
 traceplot(fit_neut_para_kkin0, pars=pars, inc_warmup = TRUE)
 pairs(fit_neut_para_kkin0, pars=pars)
@@ -468,7 +477,11 @@ loo <- loo(log_lik)
 print(loo)
 
 #visualise parameters
-pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean",
+       "VE_sym_mean_w","VE_asym_mean_w","VE_indirect_in_mean_w", "VE_indirect_pr_mean_w",
+       "p_VE_indirect_in_mean", "p_VE_indirect_pr_mean", "p_VE_direct_in_mean", "p_VE_direct_pr_mean",
+       "p_VE_indirect_in_mean2", "p_VE_indirect_pr_mean2", "p_VE_direct_in_mean2", "p_VE_direct_pr_mean2",
+       "p_VE_indirect_in_tot", "p_VE_indirect_pr_tot", "p_VE_direct_in_tot", "p_VE_direct_pr_tot")
 
 print(fit_spike_para, pars=pars)
 traceplot(fit_spike_para, pars=pars, inc_warmup = TRUE)
@@ -832,7 +845,11 @@ loo <- loo(log_lik)
 print(loo)
 
 #visualise parameters
-pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean")
+pars=c("ps", "foi_ref", "foi_cov1", "foi_cov2", "foi_cov3", "foi_cov4", "foi_cov5", "foi_cov6", "kk_in", "kk_pr", "n_50_in", "n_50_pr", "scale_in", "scale_pr", "VE_direct_in", "VE_direct_pr", "VE_indirect_in_mean", "VE_indirect_pr_mean", "p_direct_in", "p_direct_pr", "VE_in_mean", "VE_pr_mean", "VE_sym_mean", "VE_asym_mean",
+       "VE_sym_mean_w","VE_asym_mean_w","VE_indirect_in_mean_w", "VE_indirect_pr_mean_w",
+       "p_VE_indirect_in_mean", "p_VE_indirect_pr_mean", "p_VE_direct_in_mean", "p_VE_direct_pr_mean",
+       "p_VE_indirect_in_mean2", "p_VE_indirect_pr_mean2", "p_VE_direct_in_mean2", "p_VE_direct_pr_mean2",
+       "p_VE_indirect_in_tot", "p_VE_indirect_pr_tot", "p_VE_direct_in_tot", "p_VE_direct_pr_tot")
 print(fit_RBD_para, pars=pars)
 traceplot(fit_RBD_para, pars=pars, inc_warmup = TRUE)
 pairs(fit_RBD_para, pars=pars)
@@ -1155,4 +1172,5 @@ pairs(fit_RBD_para_kk0, pars=pars)
 fit_RBD_para_kk0@stanmodel@dso <- new("cxxdso")
 saveRDS(fit_RBD_para_kk0, file = "C:/Users/lrw19/OneDrive - Imperial College London/Documents/PhD Project/RStan Model/Correlates of protection/Correlates COV002/Model fits/fit_RBD_para_cov002_kk0.rds")
 ```
+
 
